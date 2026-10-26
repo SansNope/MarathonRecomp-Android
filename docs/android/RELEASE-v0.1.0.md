@@ -18,7 +18,7 @@ The native game libraries and bundled drivers are compared byte-for-byte with th
 
 - **POCO F5 / SM7475 / Adreno725 / Android17:** menus, HUB/events, a boss, Wave Ocean and Dusty Desert; sound, touch and saves. Saved measurements show about60FPS outside loading transitions at60% render scale.
 - **realme RMX5090 / Snapdragon8Elite / Adreno830 / Android16:** HUB/events and a level at125% render scale, working surface recreation after backgrounding. Performance was reported as excellent by the tester; numerical FPS was not measured.
-- The owner installed and checked the icon/Info development APK `63b87707…` and reported it working. The newly signed Release APK is verified as an artifact; its installation/gameplay must be distinguished from that development-APK test.
+- The owner installed and checked the icon/Info development APK `63b87707…` and reported it working. The signed v0.1.0 release APK was then installed over an earlier development build on a test phone; saves were kept and the game works, confirming the certificate-lineage update path on a device.
 
 ## Known limitations
 
@@ -46,4 +46,4 @@ Please attach `log.txt` to Android bug reports, with the phone, Android version,
 
 На POCO F5 измерено около60FPS вне загрузок при масштабе60%; на realme8Elite проверены HUB/уровень и125% рендера, численный FPS не измерялся. Переходы между сценами могут давать просадки. Другие устройства/GPU, Android10–15, геймпады, DLC, полное прохождение и долгая игра от батареи пока не проверены. Релиз ранний, универсальная совместимость не обещается.
 
-В APK выключена отладка, версия0.1.0/code3. Для отдельного release-ключа сохранена цепочка обновления от прежних сборок владельца. Проверка подписи/содержимого нового APK не заменяет проверку его установки на устройстве. Сохранения перед обновлением полезно скопировать; при отказе Android обновляться сначала сообщите ошибку, не удаляя приложение.
+В APK выключена отладка, версия0.1.0/code3. Для отдельного release-ключа сохранена цепочка обновления от прежних сборок владельца. Release APK установлен поверх прежней отладочной сборки на тестовом телефоне: сохранения остались, игра работает, путь обновления подтверждён на устройстве. Сохранения перед обновлением полезно скопировать; при отказе Android обновляться сначала сообщите ошибку, не удаляя приложение.
