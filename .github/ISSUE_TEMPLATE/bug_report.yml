@@ -1,21 +1,82 @@
-name: Bug Report
-description: Report a bug in Marathon Recompiled
-type: "Bug"
+name: Bug Report (Android)
+description: Report a problem with the Android port / Сообщить о проблеме Android-версии
+labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is the **unofficial Android port** of MarathonRecomp. Please do not report Android problems to upstream MarathonRecomp.
+        Это **неофициальный порт** MarathonRecomp на Android. Не отправляйте проблемы Android-версии в оригинальный MarathonRecomp.
+
+        Before reporting, see [docs/android/STATUS.md](https://github.com/SansNope/MarathonRecomp-Android/blob/main/docs/android/STATUS.md) for tested devices and known issues.
+        Перед отправкой посмотрите [docs/android/STATUS.ru.md](https://github.com/SansNope/MarathonRecomp-Android/blob/main/docs/android/STATUS.ru.md): проверенные устройства и известные проблемы.
   - type: checkboxes
     id: validation
     attributes:
-      label: Validation
+      label: Validation / Проверка
       options:
-        - label: I have checked the [Issues](https://github.com/sonicnext-dev/MarathonRecomp/issues) page to see if my problem has already been reported
+        - label: I have checked the [Issues](https://github.com/SansNope/MarathonRecomp-Android/issues) page and the known issues list / Я проверил(а) Issues и список известных проблем
           required: true
-        - label: I have confirmed that this bug does not occur in the original game running on original Xbox 360 hardware
+        - label: I use game files dumped from my own copy of the Xbox 360 game / Я использую файлы игры с собственной копии для Xbox 360
           required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone / Телефон
+      description: Model, SoC, GPU / Модель, процессор, GPU
+      placeholder: "POCO F5, Snapdragon 7+ Gen 2, Adreno 725"
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version / Версия Android
+      placeholder: "Android 16, HyperOS 3"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version or commit / Версия приложения или коммит
+      description: Where you got the APK, or the commit you built from / Откуда APK или из какого коммита собран
+      placeholder: "0.1.0-dev, built from b70d3a4"
+    validations:
+      required: true
+  - type: dropdown
+    id: driver
+    attributes:
+      label: Vulkan driver (launcher) / Драйвер Vulkan (лаунчер)
+      options:
+        - Auto (recommended)
+        - System
+        - Bundled Turnip
+        - Adreno 710 (Vauzi)
+        - A725 Performance (experimental; sysmem+nobin)
+        - Adreno 8xx (Snapdragon 8 Elite; sysmem+nobin)
+        - Imported
+    validations:
+      required: true
+  - type: dropdown
+    id: render-mode
+    attributes:
+      label: Turnip render mode (launcher) / Режим рендера Turnip (лаунчер)
+      options:
+        - Auto (recommended)
+        - GMEM
+        - Sysmem
+    validations:
+      required: true
+  - type: input
+    id: settings
+    attributes:
+      label: In-game graphics settings / Настройки графики в игре
+      description: Resolution scale, frame rate, VSync, other changes / Масштаб разрешения, FPS, VSync, другие изменения
+      placeholder: "Resolution scale 100%, 60 FPS, VSync on"
   - type: checkboxes
     id: dlc
     attributes:
       label: DLC
-      description: If you have DLC installed, please specify which ones you have.
+      description: If you have DLC installed, please specify which ones you have. / Отметьте установленные DLC.
       options:
         - label: Additional Episode "Sonic Boss Attack"
         - label: Additional Episode "Shadow Boss Attack"
@@ -25,59 +86,44 @@ body:
         - label: Additional Mission Pack "Shadow/Very Hard"
         - label: Additional Mission Pack "Silver/Very Hard"
   - type: textarea
-    id: mods
-    attributes:
-      label: Mods
-      description: Provide a list of your enabled mods in Mod Manager here. You will not receive support for issues *caused* by mods.
-  - type: textarea
-    id: codes
-    attributes:
-      label: Codes
-      description: Provide a list of your enabled codes in Mod Manager here.
-  - type: textarea
     id: description
     attributes:
-      label: Describe the Bug
-      description: A clear and concise description of what the bug is.
+      label: Describe the problem / Описание проблемы
+      description: What happened? Crash, black screen, graphics glitch, low FPS, controls... / Что произошло? Вылет, чёрный экран, графика, низкий FPS, управление...
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Steps to Reproduce
-      description: Provide steps to reproduce the bug
+      label: Steps to reproduce / Как повторить
       placeholder: |
-        1. Go to '...'
-        2. etc.
+        1. Launch the game / Запустить игру
+        2. Go to '...' / Перейти в '...'
+        3. ...
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected Behavior
-      description: A clear and concise description of what you expected to happen.
+      label: Expected behavior / Как должно быть
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: log.txt
+      description: |
+        Required. Launcher → Advanced → Open logs, then drag `log.txt` here (and `log_prev.txt` if the game crashed and was started again).
+        Обязательно. Лаунчер → «Дополнительно» → «Открыть логи», затем перетащите сюда `log.txt` (и `log_prev.txt`, если после вылета игра запускалась снова).
+      placeholder: Drop the file here / Перетащите файл сюда
     validations:
       required: true
   - type: textarea
     id: footage
     attributes:
-      label: Footage
-      description: Attach a screenshot or video of the bug. If possible, please also provide footage of the expected behaviour on original Xbox 360 hardware.
-  - type: textarea
-    id: specifications
-    attributes:
-      label: Specifications
-      description: Fill out the following details
-      value: |
-        - CPU: (e.g. Intel Core [...], AMD Ryzen [...], etc.)
-        - GPU: (e.g. NVIDIA GeForce [...], Radeon HD [...], Intel HD [...], etc.)
-        - GPU Driver: (e.g NVIDIA driver 545.XX, AMD driver 24.X.X, etc.)
-        - OS: (e.g. Windows 10, Windows 11, Linux distro)
-        - Version: (e.g. 1.0.0)
-    validations:
-      required: true
+      label: Screenshots or video / Скриншоты или видео
   - type: textarea
     id: context
     attributes:
-      label: Additional Context
-      description: Provide any other context about the problem here.
+      label: Additional context / Дополнительно
+      description: Mods, imported drivers, marker files (`thread_affinity.disabled`, `prerotation.disabled`...) / Моды, импортированные драйверы, файлы-переключатели
