@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themes from UnleashedRecomp-Android 0.6.1. -->
+<resources>
+    <!-- Game activity theme. -->
+    <style name="AppTheme" parent="android:Theme.NoTitleBar.Fullscreen">
+        <!-- Without this, the platform default avoids the display cutout in landscape
+             (only portrait extends under it by default), leaving a black bar over it. -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+    <!-- Dark full-screen launcher theme. Content extends under the display cutout;
+         the launcher pads its panes by the cutout's safe insets and hides the system bars. -->
+    <style name="LauncherTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#5CC8FF</item>
+        <item name="android:windowBackground">#030816</item>
+        <item name="android:navigationBarColor">#030816</item>
+        <item name="android:statusBarColor">#030816</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:buttonStyle">@style/LauncherButton</item>
+    </style>
+    <style name="LauncherButton" parent="android:style/Widget.Material.Button">
+        <item name="android:background">@drawable/launcher_button</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">#F2F6FF</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:minHeight">42dp</item>
+    </style>
+</resources>

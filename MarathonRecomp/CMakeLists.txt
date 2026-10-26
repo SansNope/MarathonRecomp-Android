@@ -31,9 +31,17 @@ function(BIN2C)
         set(BIN2C_ARGS_COMPRESSION_TYPE "none")
     endif()
 
+    if (MARATHON_RECOMP_USE_PREBUILT_HOST_TOOLS)
+        set(FILE_TO_C_COMMAND "${MARATHON_RECOMP_HOST_FILE_TO_C}")
+        set(FILE_TO_C_TOOL_DEPENDS "${MARATHON_RECOMP_HOST_FILE_TO_C}")
+    else()
+        set(FILE_TO_C_COMMAND "$<TARGET_FILE:file_to_c>")
+        set(FILE_TO_C_TOOL_DEPENDS file_to_c)
+    endif()
+
     add_custom_command(OUTPUT "${BIN2C_ARGS_DEST_FILE}.c"
-        COMMAND $<TARGET_FILE:file_to_c> "${BIN2C_ARGS_SOURCE_FILE}" "${BIN2C_ARGS_ARRAY_NAME}" "${BIN2C_ARGS_COMPRESSION_TYPE}" "${BIN2C_ARGS_DEST_FILE}.c" "${BIN2C_ARGS_DEST_FILE}.h"
-        DEPENDS "${BIN2C_ARGS_SOURCE_FILE}"
+        COMMAND ${FILE_TO_C_COMMAND} "${BIN2C_ARGS_SOURCE_FILE}" "${BIN2C_ARGS_ARRAY_NAME}" "${BIN2C_ARGS_COMPRESSION_TYPE}" "${BIN2C_ARGS_DEST_FILE}.c" "${BIN2C_ARGS_DEST_FILE}.h"
+        DEPENDS "${BIN2C_ARGS_SOURCE_FILE}" ${FILE_TO_C_TOOL_DEPENDS}
         BYPRODUCTS "${BIN2C_ARGS_DEST_FILE}.h"
         COMMENT "Generating binary header for ${BIN2C_ARGS_SOURCE_FILE}..."
     )
@@ -62,8 +70,13 @@ else()
     add_compile_options(-ffp-model=strict)
 endif()
 
+if (NOT ANDROID)
+    # On Android, main() must become SDL_main() (via SDL_main.h) so that SDL3's
+    # SDLActivity can find and call it in libmain.so; SDL_MAIN_HANDLED would suppress that.
+    add_compile_definitions(SDL_MAIN_HANDLED)
+endif()
+
 add_compile_definitions(
-    SDL_MAIN_HANDLED
     _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR # Microsoft wtf?
     _CRT_SECURE_NO_WARNINGS)
 
@@ -94,6 +107,18 @@ if (WIN32)
         "os/win32/thread_win32.cpp"
         "os/win32/user_win32.cpp"
         "os/win32/version_win32.cpp"
+    )
+elseif (ANDROID)
+    set(MARATHON_RECOMP_OS_CXX_SOURCES
+        "os/android/logger_android.cpp"
+        "os/android/media_android.cpp"
+        "os/android/process_android.cpp"
+        "os/android/storage_android.cpp"
+        "os/android/thread_android.cpp"
+        "os/android/thread_hints_android.cpp"
+        "os/android/user_android.cpp"
+        "os/android/version_android.cpp"
+        "os/android/vulkan_driver_android.cpp"
     )
 elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(MARATHON_RECOMP_OS_CXX_SOURCES
@@ -168,15 +193,24 @@ set(MARATHON_RECOMP_UI_CXX_SOURCES
     "ui/fader.cpp"
     "ui/game_window.cpp"
     "ui/imgui_utils.cpp"
-    "ui/installer_wizard.cpp"
     "ui/message_window.cpp"
     "ui/options_menu.cpp"
 )
 
+# The installer wizard depends on the native file picker; on Android game data is
+# imported by the Java launcher instead, see ui/installer_wizard_android.cpp.
+if (ANDROID)
+    list(APPEND MARATHON_RECOMP_UI_CXX_SOURCES
+        "ui/installer_wizard_android.cpp"
+        "ui/touch_controls.cpp"
+    )
+else()
+    list(APPEND MARATHON_RECOMP_UI_CXX_SOURCES "ui/installer_wizard.cpp")
+endif()
+
 set(MARATHON_RECOMP_INSTALL_CXX_SOURCES
     "install/installer.cpp"
     "install/iso_file_system.cpp"
-    "install/update_checker.cpp"
     "install/xcontent_file_system.cpp"
     "install/hashes/game.cpp"
     "install/hashes/episode_sonic.cpp"
@@ -187,6 +221,12 @@ set(MARATHON_RECOMP_INSTALL_CXX_SOURCES
     "install/hashes/mission_shadow.cpp"
     "install/hashes/mission_silver.cpp"
 )
+
+# The update checker queries desktop Marathon Recompiled releases; the separate Android
+# app does not use it (and so does not need curl and OpenSSL).
+if (NOT ANDROID)
+    list(APPEND MARATHON_RECOMP_INSTALL_CXX_SOURCES "install/update_checker.cpp")
+endif()
 
 set(MARATHON_RECOMP_USER_CXX_SOURCES
     "user/achievement_data.cpp"
@@ -230,6 +270,12 @@ set(MARATHON_RECOMP_THIRDPARTY_INCLUDES
     "${MARATHON_RECOMP_TOOLS_ROOT}/bc_diff"
     "${MARATHON_RECOMP_TOOLS_ROOT}/XenosRecomp/thirdparty/smol-v/source"
 )
+
+if (ANDROID)
+    # Driver package (.zip) import in os/android/vulkan_driver_android.cpp.
+    list(APPEND MARATHON_RECOMP_THIRDPARTY_SOURCES "${MARATHON_RECOMP_THIRDPARTY_ROOT}/miniz/miniz.c")
+    list(APPEND MARATHON_RECOMP_THIRDPARTY_INCLUDES "${MARATHON_RECOMP_THIRDPARTY_ROOT}/miniz")
+endif()
 
 set_source_files_properties(${MARATHON_RECOMP_THIRDPARTY_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
@@ -332,6 +378,11 @@ elseif (APPLE)
             MACOSX_BUNDLE_SHORT_VERSION_STRING ${MACOS_BUNDLE_VERSION}
             MACOSX_BUNDLE_ICON_FILE "game_icon.icns"
     )
+elseif (ANDROID)
+    # Built as a shared library loaded via JNI from SDL3's SDLActivity (which looks up
+    # SDL_main in "libmain.so"), since Android apps cannot be launched as bare ELF binaries.
+    add_library(MarathonRecomp SHARED ${MARATHON_RECOMP_CXX_SOURCES})
+    set_target_properties(MarathonRecomp PROPERTIES OUTPUT_NAME "main")
 else()
     add_executable(MarathonRecomp ${MARATHON_RECOMP_CXX_SOURCES})
 endif()
@@ -343,7 +394,12 @@ if (MARATHON_RECOMP_FLATPAK)
     )
 endif()
 
-find_package(CURL REQUIRED)
+if (ANDROID)
+    target_link_libraries(MarathonRecomp PRIVATE android log adrenotools)
+else()
+    find_package(CURL REQUIRED)
+    target_link_libraries(MarathonRecomp PRIVATE CURL::libcurl nfd::nfd)
+endif()
 
 if (MARATHON_RECOMP_METAL)
     target_compile_definitions(MarathonRecomp PRIVATE MARATHON_RECOMP_METAL)
@@ -386,7 +442,6 @@ target_link_libraries(MarathonRecomp PRIVATE
     fmt::fmt
     libzstd_static
     msdf-atlas-gen::msdf-atlas-gen
-    nfd::nfd
     o1heap
     XenonUtils
     SDL3::SDL3-static
@@ -394,7 +449,6 @@ target_link_libraries(MarathonRecomp PRIVATE
     tomlplusplus::tomlplusplus
     MarathonRecompLib
     xxHash::xxhash
-    CURL::libcurl
     plume
 )
 

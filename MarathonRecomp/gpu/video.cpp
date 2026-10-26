@@ -38,6 +38,15 @@
 #include <xxHashMap.h>
 #include <os/process.h>
 #include <os/thread.h>
+#ifdef __ANDROID__
+#include <os/android/vulkan_driver_android.h>
+#include <os/android/storage_android.h>
+#include <os/android/frame_diagnostics.h>
+#include <ui/touch_controls.h>
+#include <dlfcn.h>
+#include <time.h>
+#include <sched.h>
+#endif
 
 #if defined(ASYNC_PSO_DEBUG) || defined(PSO_CACHING)
 #include <user/paths.h>
@@ -305,6 +314,121 @@ static Profiler g_frameFenceProfiler;
 static Profiler g_presentWaitProfiler;
 static Profiler g_swapChainAcquireProfiler;
 
+#ifdef __ANDROID__
+// Opt-in diagnostics. No settings, GPU work, affinity or pacing are changed.
+// Create <game root>/perf_capture.enabled before launching to collect a summary
+// every two seconds in log.txt. A restart without the marker disables it.
+struct AndroidFrameDiagnostics
+{
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point lastEnd{}, windowStart{}, entry{};
+    double lastCpu = 0.0, entryCpu = 0.0;
+    uint32_t count = 0;
+    double frame = 0.0, cpu = 0.0, guest = 0.0, guestCpu = 0.0;
+    double renderWait = 0.0, present = 0.0, fence = 0.0, acquire = 0.0, pacing = 0.0;
+    double presentWait = 0.0, updateWall = 0.0, updateCpu = 0.0;
+    double pendingUpdateWall = 0.0, pendingUpdateCpu = 0.0, updateStartCpu = 0.0;
+    Clock::time_point updateStart{};
+    double gpu = 0.0, gpuMax = 0.0;
+    bool enabled = false;
+
+    static double CpuMilliseconds()
+    {
+        timespec ts{};
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+        return double(ts.tv_sec) * 1000.0 + double(ts.tv_nsec) / 1000000.0;
+    }
+
+    static double Milliseconds(Clock::time_point begin, Clock::time_point end)
+    {
+        return std::chrono::duration<double, std::milli>(end - begin).count();
+    }
+
+    void Begin()
+    {
+        static const bool requested = []
+        {
+            std::error_code error;
+            return std::filesystem::exists(os::android::GetDataRoot() / "perf_capture.enabled", error);
+        }();
+        enabled = requested;
+        if (!enabled)
+            return;
+        entry = Clock::now();
+        entryCpu = CpuMilliseconds();
+    }
+
+    void End(double waitRenderMs, double presentMs, double fenceMs, double pacingMs)
+    {
+        if (!enabled)
+            return;
+        const auto end = Clock::now();
+        const double endCpu = CpuMilliseconds();
+        if (lastEnd.time_since_epoch().count() != 0)
+        {
+            ++count;
+            frame += Milliseconds(lastEnd, end);
+            cpu += endCpu - lastCpu;
+            guest += Milliseconds(lastEnd, entry);
+            guestCpu += entryCpu - lastCpu;
+            presentWait += g_presentWaitProfiler.value.load();
+            updateWall += pendingUpdateWall;
+            updateCpu += pendingUpdateCpu;
+            renderWait += waitRenderMs;
+            present += presentMs;
+            fence += fenceMs;
+            pacing += pacingMs;
+            acquire += g_swapChainAcquireProfiler.value.load();
+            const double gpuMs = g_gpuFrameProfiler.value.load();
+            gpu += gpuMs;
+            gpuMax = std::max(gpuMax, gpuMs);
+        }
+        else
+        {
+            windowStart = end;
+            LOGN("[perf] enabled; GPU uses existing frame timestamps; other values are CPU wall/thread times");
+        }
+        lastEnd = end;
+        lastCpu = endCpu;
+        pendingUpdateWall = pendingUpdateCpu = 0.0;
+        if (count && end - windowStart >= std::chrono::seconds(2))
+        {
+            const double n = double(count);
+            LOGFN("[perf] frames={} fps={:.2f} frame_ms={:.3f} main_cpu_ms={:.3f} guest_wall_ms={:.3f} guest_cpu_ms={:.3f} render_wait_ms={:.3f} present_ms={:.3f} fence_ms={:.3f} acquire_ms={:.3f} pacing_ms={:.3f} gpu_ms={:.3f} gpu_max_ms={:.3f} cpu={} scale={:.3f} present_wait_ms={:.3f} doc_update_wall_ms={:.3f} doc_update_cpu_ms={:.3f}",
+                count, 1000.0 * n / frame, frame / n, cpu / n, guest / n, guestCpu / n,
+                renderWait / n, present / n, fence / n, acquire / n, pacing / n, gpu / n,
+                gpuMax, sched_getcpu(), float(Config::ResolutionScale), presentWait / n, updateWall / n, updateCpu / n);
+            count = 0;
+            frame = cpu = guest = guestCpu = renderWait = present = fence = acquire = pacing = gpu = gpuMax = 0.0;
+            presentWait = updateWall = updateCpu = 0.0;
+            windowStart = end;
+        }
+    }
+};
+
+static thread_local AndroidFrameDiagnostics g_androidFrameDiagnostics;
+
+void os::android::perf::BeginDocUpdate()
+{
+    auto& diagnostics = g_androidFrameDiagnostics;
+    // The first call can precede the first Present; skipping that sample is fine.
+    if (!diagnostics.enabled)
+        return;
+    diagnostics.updateStart = AndroidFrameDiagnostics::Clock::now();
+    diagnostics.updateStartCpu = AndroidFrameDiagnostics::CpuMilliseconds();
+}
+
+void os::android::perf::EndDocUpdate()
+{
+    auto& diagnostics = g_androidFrameDiagnostics;
+    if (!diagnostics.enabled || diagnostics.updateStart.time_since_epoch().count() == 0)
+        return;
+    diagnostics.pendingUpdateWall += AndroidFrameDiagnostics::Milliseconds(diagnostics.updateStart, AndroidFrameDiagnostics::Clock::now());
+    diagnostics.pendingUpdateCpu += AndroidFrameDiagnostics::CpuMilliseconds() - diagnostics.updateStartCpu;
+    diagnostics.updateStart = {};
+}
+#endif
+
 static bool g_profilerVisible;
 static bool g_profilerWasToggled;
 
@@ -346,13 +470,32 @@ static std::unique_ptr<RenderCommandFence> g_discardCommandFence;
 static std::unique_ptr<RenderSwapChain> g_swapChain;
 static bool g_swapChainValid;
 
+#ifdef __ANDROID__
+// Android WSI surfaces only report RGBA-order formats (R8G8B8A8_UNORM/_SRGB), not BGRA.
+// With B8G8R8A8_UNORM Plume finds no compatible surface format and the swap chain never
+// gets a valid format (UnleashedRecomp-Android uses the same override).
+static constexpr RenderFormat BACKBUFFER_FORMAT = RenderFormat::R8G8B8A8_UNORM;
+
+static uint64_t g_androidSwapchainRetryAfterMs;
+// Set when recreating the swap chain failed: the surface itself is then likely lost
+// (VK_ERROR_SURFACE_LOST_KHR / NATIVE_WINDOW_IN_USE) even if the window pointer is unchanged.
+static bool g_androidSurfaceNeedsRecreate;
+#else
 static constexpr RenderFormat BACKBUFFER_FORMAT = RenderFormat::B8G8R8A8_UNORM;
+#endif
 
 static std::unique_ptr<RenderCommandSemaphore> g_acquireSemaphores[NUM_FRAMES];
 static std::vector<std::unique_ptr<RenderCommandSemaphore>> g_renderSemaphores;
 static uint32_t g_backBufferIndex;
 static std::unique_ptr<GuestSurface> g_backBufferHolder;
 static GuestSurface* g_backBuffer;
+
+// ResolutionScale only shrinks the game's scene render targets (framebuffer*, depth
+// stencils); its back buffer and 2D/HUD layout stay at the full viewport size, and the
+// game's own "Rasterize" pass stretches the scene into the back buffer. The scaled
+// targets are created by Video::Resize, which needs the game's render target container,
+// so a resize requested before it exists stays pending until it can be applied.
+static bool g_resizePending;
 
 static std::unique_ptr<RenderTexture> g_intermediaryBackBufferTexture;
 static uint32_t g_intermediaryBackBufferTextureWidth;
@@ -1662,6 +1805,9 @@ static void CreateImGuiBackend()
     InitImGuiUtils();
     OptionsMenu::Init();
     InstallerWizard::Init();
+#ifdef __ANDROID__
+    TouchControls::Init();
+#endif
 
     ImGui_ImplSDL3_InitForOther(GameWindow::s_pWindow);
 
@@ -1806,13 +1952,93 @@ static void CreateImGuiBackend()
 #endif
 }
 
+#ifdef __ANDROID__
+// Ported from UnleashedRecomp-Android: without a frame-rate vote, high refresh rate phones
+// keep the game surface at 60 Hz, so FIFO presentation caps the game at 60 FPS whatever the
+// FPS option says. Vote the FPS option on every new ANativeWindow and whenever the option
+// changes. ANativeWindow_setFrameRate is API 30+, minSdk is 29, so it is resolved at runtime.
+static void UpdateAndroidFrameRateVote(plume::RenderWindow window)
+{
+    static plume::RenderWindow s_votedWindow = nullptr;
+    static int32_t s_votedFps = 0;
+    if (window == nullptr || (window == s_votedWindow && Config::FPS.Value == s_votedFps))
+        return;
+
+    s_votedWindow = window;
+    s_votedFps = Config::FPS.Value;
+
+    using SetFrameRateFn = int32_t (*)(ANativeWindow*, float, int8_t);
+    static SetFrameRateFn s_setFrameRate = []() -> SetFrameRateFn
+    {
+        void* library = dlopen("libnativewindow.so", RTLD_NOW | RTLD_LOCAL);
+        return library != nullptr ? reinterpret_cast<SetFrameRateFn>(dlsym(library, "ANativeWindow_setFrameRate")) : nullptr;
+    }();
+
+    if (s_setFrameRate == nullptr)
+    {
+        LOG_WARNING("ANativeWindow_setFrameRate is unavailable (Android 10); the display keeps its default refresh rate.");
+        return;
+    }
+
+    // FPS_MAX means uncapped: vote high and let the platform pick the fastest mode.
+    const float frameRate = (Config::FPS.Value >= FPS_MIN && Config::FPS.Value < FPS_MAX) ? float(Config::FPS.Value) : 240.0f;
+    const int32_t result = s_setFrameRate(window, frameRate, 0 /* ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT */);
+    LOGF("Android frame-rate vote: {} FPS (result {}).", frameRate, result);
+}
+#endif
+
 static void CheckSwapChain()
 {
     g_swapChain->setVsyncEnabled(Config::VSync);
     g_swapChainValid &= !g_swapChain->needsResize();
 
+#ifdef __ANDROID__
+    // Android replaces the ANativeWindow across background/foreground. The old VkSurfaceKHR
+    // then references a dead window: swap chain recreation fails or presents never reach the
+    // screen. Compare every frame so the change is caught even if lifecycle events were missed.
+    plume::RenderWindow currentNativeWindow = GameWindow::GetAndroidNativeWindow();
+    if (currentNativeWindow != g_swapChain->getWindow())
+        g_swapChainValid = false;
+
+    UpdateAndroidFrameRateVote(currentNativeWindow);
+#endif
+
     if (!g_swapChainValid)
     {
+#ifdef __ANDROID__
+        const uint64_t nowMs = SDL_GetTicks();
+        if (nowMs < g_androidSwapchainRetryAfterMs)
+            goto skipResizeAttempt;
+
+        // Backgrounded: no window to present into yet. Keep rendering offscreen and retry.
+        if (currentNativeWindow == nullptr)
+        {
+            g_androidSwapchainRetryAfterMs = nowMs + 100;
+            goto skipResizeAttempt;
+        }
+
+        if (currentNativeWindow != g_swapChain->getWindow() || g_androidSurfaceNeedsRecreate)
+        {
+            Video::WaitForGPU();
+            LOGF("Recreating the Vulkan surface (native window {}).",
+                currentNativeWindow != g_swapChain->getWindow() ? "changed" : "unchanged, previous surface lost");
+            GameWindow::s_renderWindow = currentNativeWindow;
+
+            // The swap chain images are destroyed with the surface; drop framebuffers first.
+            g_backBuffer->framebuffers.clear();
+            PurgeSurfaceVariantFramebuffers();
+
+            if (!g_swapChain->recreateSurface(currentNativeWindow))
+            {
+                g_androidSwapchainRetryAfterMs = nowMs + 500;
+                LOG_WARNING("Vulkan surface recreation failed; retrying shortly.");
+                goto skipResizeAttempt;
+            }
+
+            g_androidSurfaceNeedsRecreate = false;
+        }
+#endif
+
         Video::WaitForGPU();
         g_backBuffer->framebuffers.clear();
         PurgeSurfaceVariantFramebuffers();
@@ -1821,10 +2047,31 @@ static void CheckSwapChain()
 
         while (g_renderSemaphores.size() < g_swapChain->getTextureCount())
             g_renderSemaphores.emplace_back(g_device->createCommandSemaphore());
+
+#ifdef __ANDROID__
+        if (!g_swapChainValid)
+        {
+            g_androidSwapchainRetryAfterMs = nowMs + 500;
+            g_androidSurfaceNeedsRecreate = true;
+            LOG_WARNING("Swap chain recreation failed; recreating the surface on the next attempt.");
+        }
+        else
+        {
+            LOGF("Swap chain (re)created: {}x{}, pre-rotation {} degrees.", g_swapChain->getWidth(), g_swapChain->getHeight(), g_swapChain->getPreRotation());
+        }
+#endif
     }
 
+#ifdef __ANDROID__
+skipResizeAttempt:
+#endif
     if (g_swapChainValid)
     {
+#ifdef __ANDROID__
+        // Idempotent after success; covers a deferred initial swapchain and retries a
+        // marker removal that failed on a transient storage error.
+        AndroidMarkVulkanStartupSuccessful();
+#endif
         g_swapChainAcquireProfiler.Begin();
         g_swapChainValid = g_swapChain->acquireTexture(g_acquireSemaphores[g_frame].get(), &g_backBufferIndex);
         g_swapChainAcquireProfiler.End();
@@ -2174,7 +2421,26 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
 
     g_swapChain = g_queue->createSwapChain(swapChainDesc);
     g_swapChain->setVsyncEnabled(Config::VSync);
+
+#ifdef __ANDROID__
+    // Pre-rotate the swap chain so SurfaceFlinger does not rotate every frame with GPU composition.
+    // Create <game root>/prerotation.disabled before launching to compare against the old path.
+    {
+        std::error_code error;
+        const bool preRotationDisabled = std::filesystem::exists(os::android::GetDataRoot() / "prerotation.disabled", error);
+        g_swapChain->setPreRotationEnabled(!preRotationDisabled);
+        LOGF("Swap chain pre-rotation {}.", preRotationDisabled ? "disabled by prerotation.disabled" : "enabled");
+    }
+#endif
+
     g_swapChainValid = !g_swapChain->needsResize();
+
+#ifdef __ANDROID__
+    // A custom loader reaching dlopen/device creation is not sufficient: only a usable WSI
+    // swapchain proves that Vulkan startup completed (see os/android/vulkan_driver_android.cpp).
+    if (g_swapChainValid)
+        AndroidMarkVulkanStartupSuccessful();
+#endif
 
     for (auto& acquireSemaphore : g_acquireSemaphores)
         acquireSemaphore = g_device->createCommandSemaphore();
@@ -3043,6 +3309,10 @@ static void DrawImGui()
     AchievementOverlay::Draw();
     Fader::Draw();
     BlackBar::Draw();
+#ifdef __ANDROID__
+    // Foreground overlay above every other UI so the controls stay reachable.
+    TouchControls::Draw();
+#endif
 
     assert(ImGui::GetBackgroundDrawList()->_ClipRectStack.Size == 1 && "Some clip rects were not removed from the stack!");
 
@@ -3325,6 +3595,12 @@ PPC_FUNC(sub_8260A9D0)
 
 void Video::Present() 
 {
+#ifdef __ANDROID__
+    auto& diagnostics = g_androidFrameDiagnostics;
+    diagnostics.Begin();
+    auto perfMark = AndroidFrameDiagnostics::Clock::time_point{};
+    double perfRenderWait = 0.0, perfPresent = 0.0, perfFence = 0.0, perfPacing = 0.0;
+#endif
     g_readyForCommands = false;
 
     RenderCommand cmd;
@@ -3336,7 +3612,13 @@ void Video::Present()
     cmd.type = RenderCommandType::ExecuteCommandList;
     g_renderQueue.enqueue(cmd);
 
+#ifdef __ANDROID__
+    if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
+#endif
     g_executedCommandList.wait(false);
+#ifdef __ANDROID__
+    if (diagnostics.enabled) perfRenderWait = AndroidFrameDiagnostics::Milliseconds(perfMark, AndroidFrameDiagnostics::Clock::now());
+#endif
     g_executedCommandList = false;
 
     if (g_swapChainValid)
@@ -3349,7 +3631,13 @@ void Video::Present()
         }
 
         RenderCommandSemaphore* signalSemaphores[] = { g_renderSemaphores[g_backBufferIndex].get() };
+#ifdef __ANDROID__
+        if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
+#endif
         g_swapChainValid = g_swapChain->present(g_backBufferIndex, signalSemaphores, std::size(signalSemaphores));
+#ifdef __ANDROID__
+        if (diagnostics.enabled) perfPresent = AndroidFrameDiagnostics::Milliseconds(perfMark, AndroidFrameDiagnostics::Clock::now());
+#endif
     }
 
     g_pendingWaitOnSwapChain = true;
@@ -3360,7 +3648,13 @@ void Video::Present()
     if (g_commandListStates[g_frame])
     {
         g_frameFenceProfiler.Begin();
+#ifdef __ANDROID__
+        if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
+#endif
         g_queue->waitForCommandFence(g_commandFences[g_frame].get());
+#ifdef __ANDROID__
+        if (diagnostics.enabled) perfFence = AndroidFrameDiagnostics::Milliseconds(perfMark, AndroidFrameDiagnostics::Clock::now());
+#endif
         g_frameFenceProfiler.End();
         g_commandListStates[g_frame] = false;
 
@@ -3376,7 +3670,7 @@ void Video::Present()
     g_triangleFanIndexData.reset();
     g_quadIndexData.reset();
 
-    if (s_needsResize)
+    if (s_needsResize || g_resizePending)
     {
         Resize(s_viewportWidth, s_viewportHeight);
         s_needsResize = false;
@@ -3387,6 +3681,9 @@ void Video::Present()
     cmd.type = RenderCommandType::BeginCommandList;
     g_renderQueue.enqueue(cmd);
 
+#ifdef __ANDROID__
+    if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
+#endif
     if (Config::FPS >= FPS_MIN && Config::FPS < FPS_MAX)
     {
         using namespace std::chrono_literals;
@@ -3410,11 +3707,18 @@ void Video::Present()
         s_next += 1000000000ns / Config::FPS;
     }
 
+#ifdef __ANDROID__
+    if (diagnostics.enabled) perfPacing = AndroidFrameDiagnostics::Milliseconds(perfMark, AndroidFrameDiagnostics::Clock::now());
+    diagnostics.End(perfRenderWait, perfPresent, perfFence, perfPacing);
+#endif
     g_presentProfiler.Reset();
 }
 
 void Video::Resize(uint32_t width, uint32_t height)
 {
+    // Cleared at the end once the game's buffers were actually recreated.
+    g_resizePending = true;
+
     const auto pApp = App::s_pApp;
 
     if (!pApp)
@@ -3432,6 +3736,12 @@ void Video::Resize(uint32_t width, uint32_t height)
 
     if (!pRenderTargetContainer || !pMyGraphicsDevice)
         return;
+
+    // The back buffer (and front buffer) keep the full viewport size: the game composes the
+    // scaled scene into it with its own "Rasterize" pass and draws the 2D/HUD layout, which
+    // is computed for the full viewport (AspectRatioPatches), on top at native resolution.
+    const uint32_t backBufferWidth = width;
+    const uint32_t backBufferHeight = height;
 
     width *= Config::ResolutionScale;
     height *= Config::ResolutionScale;
@@ -3474,13 +3784,13 @@ void Video::Resize(uint32_t width, uint32_t height)
     auto& rDeviceInfo = pApp->m_DeviceInfo;
 
     auto surfaceParams = D3DXBSURFACE_PARAMETERS(0, 0, 0);
-    const auto surfaceBase = uint32_t(height * 1.155555555555556); // 720p: 0x340
+    const auto surfaceBase = uint32_t(backBufferHeight * 1.155555555555556); // 720p: 0x340
 
     // Recreate main buffers.
     ReleaseResource(static_cast<GuestTexture*>(pApp->m_pFrontBufferTexture.get()));
-    pApp->m_pFrontBufferTexture = CreateTexture(width, height, 1, 1, 1, D3DFMT_LE_X8R8G8B8, 0, 3);
+    pApp->m_pFrontBufferTexture = CreateTexture(backBufferWidth, backBufferHeight, 1, 1, 1, D3DFMT_LE_X8R8G8B8, 0, 3);
     ReleaseResource(static_cast<GuestSurface*>(pApp->m_pBackBufferSurface.get()));
-    pApp->m_pBackBufferSurface = CreateSurface(width, height, D3DFMT_A8R8G8B8, 0, reinterpret_cast<GuestSurfaceCreateParams*>(&surfaceParams));
+    pApp->m_pBackBufferSurface = CreateSurface(backBufferWidth, backBufferHeight, D3DFMT_A8R8G8B8, 0, reinterpret_cast<GuestSurfaceCreateParams*>(&surfaceParams));
 
     rDeviceInfo.SurfaceParamsA = surfaceParams;
     surfaceParams.Base = surfaceParams.Base + surfaceBase;
@@ -3501,8 +3811,8 @@ void Video::Resize(uint32_t width, uint32_t height)
 
     g_backBuffer->format = BACKBUFFER_FORMAT;
 
-    rDeviceInfo.PresentParameters.BackBufferWidth = width;
-    rDeviceInfo.PresentParameters.BackBufferHeight = height;
+    rDeviceInfo.PresentParameters.BackBufferWidth = backBufferWidth;
+    rDeviceInfo.PresentParameters.BackBufferHeight = backBufferHeight;
     rDeviceInfo.pColorTile2x = pApp->m_pColorTile2x;
     rDeviceInfo.pDepthTile2x = pApp->m_pDepthTile2x;
     rDeviceInfo.pColorTile4x = pApp->m_pColorTile4x;
@@ -3642,6 +3952,10 @@ void Video::Resize(uint32_t width, uint32_t height)
         setTexture("radermap", &pHUDRaderMap->m_pMainTexture);
         setTexture("radermap_mask", &pHUDRaderMap->m_pMaskTexture);
     }
+
+    g_resizePending = false;
+    LOGFN("Resized buffers: back buffer {}x{}, scene {}x{} (resolution scale {}).",
+        backBufferWidth, backBufferHeight, width, height, Config::ResolutionScale.Value);
 }
 
 void Video::StartPipelinePrecompilation()
@@ -3677,6 +3991,10 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
                 int32_t viewportOffsetY;
                 int32_t viewportWidth;
                 int32_t viewportHeight;
+
+                int32_t swapChainWidth;
+                int32_t swapChainHeight;
+                uint32_t preRotation;
             } constants;
 
             constants.gamma = 0.85f;
@@ -3690,6 +4008,16 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
             constants.viewportOffsetY = (int32_t(g_swapChain->getHeight()) - int32_t(Video::s_viewportHeight)) / 2;
             constants.viewportWidth = Video::s_viewportWidth;
             constants.viewportHeight = Video::s_viewportHeight;
+
+            // getWidth()/getHeight() are in window orientation; a pre-rotated swap chain texture has them
+            // swapped for 90 and 270, and the shader maps each texture pixel back to window orientation.
+            constants.swapChainWidth = g_swapChain->getWidth();
+            constants.swapChainHeight = g_swapChain->getHeight();
+            constants.preRotation = g_swapChain->getPreRotation();
+
+            const bool swapChainTransposed = (constants.preRotation == 90) || (constants.preRotation == 270);
+            const uint32_t swapChainTextureWidth = swapChainTransposed ? g_swapChain->getHeight() : g_swapChain->getWidth();
+            const uint32_t swapChainTextureHeight = swapChainTransposed ? g_swapChain->getWidth() : g_swapChain->getHeight();
 
             auto &framebuffer = g_backBuffer->framebuffers[swapChainTexture];
             if (!framebuffer)
@@ -3713,8 +4041,8 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
             commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
             SetRootDescriptor(g_uploadAllocators[g_frame].allocate<false>(&constants, sizeof(constants), 0x100), 2);
             commandList->setFramebuffer(framebuffer.get());
-            commandList->setViewports(RenderViewport(0.0f, 0.0f, g_swapChain->getWidth(), g_swapChain->getHeight()));
-            commandList->setScissors(RenderRect(0, 0, g_swapChain->getWidth(), g_swapChain->getHeight()));
+            commandList->setViewports(RenderViewport(0.0f, 0.0f, swapChainTextureWidth, swapChainTextureHeight));
+            commandList->setScissors(RenderRect(0, 0, swapChainTextureWidth, swapChainTextureHeight));
             commandList->drawInstanced(6, 1, 0, 0);
             commandList->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(swapChainTexture, RenderTextureLayout::PRESENT));
         }
@@ -4565,6 +4893,23 @@ static void SetFramebuffer(GuestSurface* renderTarget, GuestSurface* depthStenci
 
                 if (depthStencil != nullptr)
                     desc.depthAttachment = depthStencil->texture;
+
+                // With ResolutionScale the scene depth is smaller than the full-size back
+                // buffer. A depth attachment smaller than the colour attachment is invalid in
+                // Vulkan, so bind such a pair without depth (the game's back buffer passes are 2D).
+                if (renderTarget != nullptr && depthStencil != nullptr &&
+                    (depthStencil->width < renderTarget->width || depthStencil->height < renderTarget->height))
+                {
+                    static bool s_loggedSmallDepth;
+                    if (!s_loggedSmallDepth)
+                    {
+                        LOGF_WARNING("Depth stencil {}x{} is smaller than render target {}x{}; binding without depth.",
+                            depthStencil->width, depthStencil->height, renderTarget->width, renderTarget->height);
+                        s_loggedSmallDepth = true;
+                    }
+
+                    desc.depthAttachment = nullptr;
+                }
 
                 framebuffer = g_device->createFramebuffer(desc);
             }
@@ -7018,10 +7363,15 @@ static void SetResolution(be<uint32_t>* device)
 {
     Video::ComputeViewportDimensions();
 
-    uint32_t width = uint32_t(round(Video::s_viewportWidth * Config::ResolutionScale));
-    uint32_t height = uint32_t(round(Video::s_viewportHeight * Config::ResolutionScale));
+    // The device (back buffer, 2D/HUD layout) always uses the full viewport size; the scaled
+    // scene targets are created by Video::Resize once the game's render targets exist.
+    uint32_t width = Video::s_viewportWidth;
+    uint32_t height = Video::s_viewportHeight;
     device[46] = width == 0 ? 880 : width;
     device[47] = height == 0 ? 720 : height;
+
+    if (Config::ResolutionScale != 1.0f)
+        g_resizePending = true;
 }
 
 static GuestShader* g_movieVertexShader;

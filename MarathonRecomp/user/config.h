@@ -69,6 +69,49 @@ enum class EControllerIcons : uint32_t
     PlayStation
 };
 
+// Android settings ported from UnleashedRecomp-Android. The numeric order is
+// persisted by the Vulkan driver boot recovery state, so only append values.
+enum class EAndroidTouchControlsPolicy : uint32_t
+{
+    Auto,
+    AlwaysOn,
+    Off
+};
+
+// Camera control on touch screens: drag on the free right half of the screen,
+// a dedicated virtual right stick, or no touch camera at all.
+enum class EAndroidTouchCameraMode : uint32_t
+{
+    TouchArea,
+    RightStick,
+    Off
+};
+
+// On-screen left input style: the analog thumbstick, or an 8-way D-pad in place of it.
+enum class EAndroidTouchStickMode : uint32_t
+{
+    Analog,
+    Dpad
+};
+
+enum class EAndroidVulkanDriver : uint32_t
+{
+    Auto,
+    System,
+    Bundled,
+    Imported,
+    Vauzi710,
+    ExperimentalA725,
+    Adreno8xx
+};
+
+enum class EAndroidRenderMode : uint32_t
+{
+    Auto,
+    GMEM,
+    Sysmem
+};
+
 enum class EChannelConfiguration : uint32_t
 {
     Stereo,

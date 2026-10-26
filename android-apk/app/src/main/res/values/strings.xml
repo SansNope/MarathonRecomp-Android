@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher texts follow UnleashedRecomp-Android 0.6.1, rewritten for Sonic the Hedgehog (2006). -->
+<resources>
+    <string name="app_name">Marathon Recompiled</string>
+    <string name="documents_game_title">Marathon Recompiled game files</string>
+    <string name="documents_game_summary">Active game, configuration and saves</string>
+    <string name="documents_save_title">Marathon Recompiled saves</string>
+    <string name="documents_save_summary">Save data</string>
+    <string name="documents_transfer_title">Marathon Recompiled transfers</string>
+    <string name="documents_transfer_summary">Driver imports and logs</string>
+
+    <string name="launcher_title">Marathon Recompiled</string>
+    <string name="launcher_play">Launch game</string>
+    <string name="launcher_game_files">Game files</string>
+    <string name="launcher_open_files">Open game folder</string>
+    <string name="launcher_open_saves">Open saves folder</string>
+    <string name="launcher_recheck">Check again</string>
+    <string name="launcher_install_game">Install game / DLC (.zip / folder)</string>
+    <string name="launcher_section_graphics">Graphics</string>
+    <string name="launcher_graphics">Graphics driver</string>
+    <string name="launcher_driver">Vulkan driver</string>
+    <string name="launcher_render_mode">Turnip render mode</string>
+    <string name="launcher_import_driver">Import .so / .zip</string>
+    <string name="launcher_driver_folder">Driver folder</string>
+    <string name="launcher_controls">Controls</string>
+    <string name="launcher_touch_policy">On-screen controls</string>
+    <string name="launcher_touch_camera">Camera control</string>
+    <string name="launcher_touch_stick">Left stick style</string>
+    <string name="launcher_edit_layout">Arrange touch controls</string>
+    <string name="launcher_section_advanced">Advanced</string>
+    <string name="launcher_debug">Debug options</string>
+    <string name="launcher_skip_intro">Skip intro logos</string>
+    <string name="launcher_open_logs">Open logs</string>
+    <string name="launcher_quick_files">Files</string>
+    <string name="launcher_exit">Exit</string>
+    <string name="launcher_exit_running">The game is still running in the background. Exiting closes it, and unsaved progress is lost.</string>
+    <string name="launcher_info">Info</string>
+    <string name="launcher_info_title">About this port</string>
+    <string name="launcher_info_text">The port was made by “SansNope” with the help of the Anthropic model “Opus 5.5”.\n\nA separate HUGE thank you to “ITSeny” for a big contribution to the project. Thanks to ITSeny\'s help, UnleashedRecomp-Android was brought to a polished state (he really did a lot, believe us). And thanks to his huge contribution, development of MarathonRecomp-Android went 10 times faster.\n\nAlso a huge thank you to every player who tests the port and sends feedback!\n\nWe are happy to use new technologies to give many people the chance to play these games on their mobile devices.\n\nThe app icon was taken from GameBanana; it was made by “GSNReboot”.\n\nThis is an unofficial Android port of another project from GitHub, MarathonRecomp: https://github.com/sonicnext-dev/MarathonRecomp</string>
+    <string name="launcher_chip_game_ready">Game ready</string>
+    <string name="launcher_chip_game_missing">Game not installed</string>
+    <string name="launcher_chip_dlc">DLC %1$d/%2$d</string>
+    <string name="launcher_summary_driver">Driver: %1$s</string>
+    <string name="launcher_driver_pending">%1$d driver package(s) will be installed on the next launch.</string>
+    <string name="launcher_driver_installed">Imported driver available: %1$s</string>
+    <string name="launcher_driver_builtin">Bundled Turnip drivers and the system driver are available. No imported driver found.</string>
+    <string name="launcher_driver_recovery">The previous Vulkan startup did not finish. Auto recovery will use the system driver once; choose System here if the problem repeats.</string>
+    <string name="launcher_log_found">Latest log found (%1$s).</string>
+    <string name="launcher_log_missing">No log yet. A log is created when the game starts.</string>
+
+    <string-array name="driver_labels">
+        <item>Auto (recommended)</item><item>System</item><item>Bundled Turnip</item><item>Adreno 710 (Vauzi)</item><item>A725 Performance (experimental; sysmem+nobin)</item><item>Adreno 8xx (Snapdragon 8 Elite; sysmem+nobin)</item><item>Imported</item>
+    </string-array>
+    <string-array name="render_mode_labels">
+        <item>Auto (recommended)</item><item>GMEM</item><item>Sysmem</item>
+    </string-array>
+    <string-array name="touch_policy_labels">
+        <item>Auto</item><item>Always on</item><item>Off</item>
+    </string-array>
+    <string-array name="touch_camera_labels">
+        <item>Swipe on screen</item><item>Right stick</item><item>Off</item>
+    </string-array>
+    <string-array name="touch_stick_labels">
+        <item>Analog stick</item><item>D-pad</item>
+    </string-array>
+
+    <string name="game_ready_all_dlc">Ready to launch. The game and all DLC packs were detected.</string>
+    <string name="game_ready_missing_dlc">Ready to launch. DLC packs: %1$d of %2$d.</string>
+    <string name="error_title">Cannot continue</string>
+    <string name="error_storage_create">The app cannot create its storage folder:\n%1$s\n\nCheck free space and storage availability.</string>
+    <string name="error_storage_write">The game folder is not writable:\n%1$s\n\nIt may have been created by adb or another user. Delete it and let the app recreate it.</string>
+    <string name="error_storage_selection">Could not save the storage selection.</string>
+    <string name="error_game_missing">Game files are not installed. Install the extracted Xbox 360 game (the folder with default.xex and xenon/) with Install game, or copy it as game/ into:\n%1$s</string>
+    <string name="error_game_partial">The installation is incomplete. Missing:%1$s\n\nExpected root:\n%2$s</string>
+    <string name="error_game_nested">Game files appear to be in the wrong folder (%1$s). Move the game folder (with default.xex) so that it is game/ directly inside:\n%2$s</string>
+    <string name="error_settings_save">Could not save settings: %1$s</string>
+    <string name="error_layout_editor">Could not start the layout editor: %1$s</string>
+    <string name="error_layout_requires_game">The layout editor uses the game renderer, so a valid game installation is required.</string>
+    <string name="error_driver_extension">Choose a plain Vulkan .so file or an AdrenoTools/ExynosTools .zip package.</string>
+    <string name="error_driver_copy">Could not import the driver: %1$s</string>
+    <string name="error_open_files">Android Files could not open the application folder.</string>
+    <string name="error_file_empty">The selected file is empty.</string>
+    <string name="driver_imported">%1$s was copied. It will be installed at game launch.</string>
+
+    <string name="install_source_zip">From a ZIP archive</string>
+    <string name="install_source_folder">From a folder</string>
+    <string name="install_progress_title">Installing…</string>
+    <string name="install_progress_status">%1$d files copied, %2$s</string>
+    <string name="install_scanning">Reading the source…</string>
+    <string name="install_cancel">Cancel</string>
+    <string name="install_done_game">Game files installed.</string>
+    <string name="install_cancelled">Installation cancelled. Partially copied files were left in place.</string>
+    <string name="error_install_failed">Installation failed: %1$s</string>
+    <string name="error_install_no_game">The selected source does not contain the game. Choose the extracted Xbox 360 game: a folder with default.xex and xenon/archives, or a folder that contains it as game/.</string>
+
+    <string name="storage_choose">Choose game storage</string>
+    <string name="storage_current">Game storage:\n%1$s</string>
+    <string name="storage_auto">Automatic (existing installation)</string>
+    <string name="storage_internal">Private internal storage</string>
+    <string name="storage_app">%1$s — app folder</string>
+    <string name="storage_media">%1$s — Android/media folder</string>
+    <string name="storage_unavailable">Selected storage is unavailable:\n%1$s\n\nReconnect the SD card or choose another storage location.</string>
+    <string name="storage_confirm">Use this folder for the game, settings and saves:\n%1$s\n\nFiles in the previous folder will be kept. Choose Copy current installation to copy and verify everything before switching.</string>
+    <string name="storage_use">Use this folder</string>
+    <string name="storage_copy">Copy current installation</string>
+    <string name="storage_copying">Copying and verifying the game and saves…</string>
+    <string name="storage_copy_progress">Copied %1$s. Verifying files…</string>
+    <string name="storage_copied">Installation copied and verified. The selected storage is now active; the original files were kept.</string>
+    <string name="storage_busy">Wait for the current file operation to finish.</string>
+    <string name="storage_restart">Fully close and reopen the app before changing storage or importing game files. A game session is already running in this process.</string>
+    <string name="storage_native_unavailable">The selected game storage is unavailable or not writable. Reconnect the SD card or choose another storage location in the launcher.</string>
+
+    <string name="error_io_create">Cannot create the folder:\n%1$s</string>
+    <string name="error_io_read">Cannot read:\n%1$s</string>
+    <string name="error_copy_separate">The source and destination folders must be separate and cannot contain each other.</string>
+    <string name="error_copy_empty">Copying requires an empty destination folder.</string>
+    <string name="error_copy_link">This installation contains a symbolic link that cannot be copied:\n%1$s</string>
+    <string name="error_copy_verify">Copy verification failed. The current installation was kept. File:\n%1$s</string>
+    <string name="error_copy_cancelled">Copy cancelled. The current installation was kept.</string>
+</resources>

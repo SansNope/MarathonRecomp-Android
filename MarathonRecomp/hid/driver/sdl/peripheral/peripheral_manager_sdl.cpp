@@ -2,6 +2,9 @@
 #include <hid/driver/sdl/peripheral/gamepad_sdl.h>
 #include <hid/driver/sdl/peripheral/keyboard_sdl.h>
 #include <hid/driver/sdl/peripheral/mouse_sdl.h>
+#ifdef __ANDROID__
+#include <hid/driver/sdl/peripheral/touch_sdl.h>
+#endif
 #include <hid/message/messages.h>
 #include <hid/peripheral/peripheral_manager.h>
 #include <hid/hid.h>
@@ -75,6 +78,9 @@ namespace HID
 
             pUser->Attach(std::move(std::make_shared<KeyboardSDL>()));
             pUser->Attach(std::move(std::make_shared<MouseSDL>()));
+#ifdef __ANDROID__
+            pUser->Attach(std::move(std::make_shared<TouchSDL>()));
+#endif
         }
         else if (io_rMessage.Is<MsgSetGamepadUser>())
         {

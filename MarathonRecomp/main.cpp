@@ -20,7 +20,9 @@
 #include <user/registry.h>
 #include <kernel/xdbf.h>
 #include <install/installer.h>
+#ifndef __ANDROID__
 #include <install/update_checker.h>
+#endif
 #include <os/logger.h>
 #include <os/process.h>
 #include <os/registry.h>
@@ -31,8 +33,17 @@
 #include <iostream>
 #include <app.h>
 
+#ifdef __ANDROID__
+#include <os/android/thread_hints_android.h>
+#endif
+
 #ifdef _WIN32
 #include <timeapi.h>
+#endif
+
+#ifdef __ANDROID__
+// Renames main() to SDL_main(), which SDL3's SDLActivity calls from libmain.so.
+#include <SDL3/SDL_main.h>
 #endif
 
 #if defined(_WIN32) && defined(MARATHON_RECOMP_D3D12)
@@ -214,12 +225,16 @@ int main(int argc, char *argv[])
         }
     }
 
+#ifndef __ANDROID__
+    // On Android the "executable" is libmain.so in the read-only native lib dir;
+    // all game and user paths are absolute (see user/paths.h).
     if (!useDefaultWorkingDirectory)
     {
         // Set the current working directory to the executable's path.
         std::error_code ec;
         std::filesystem::current_path(os::process::GetExecutablePath().parent_path(), ec);
     }
+#endif
 
     Config::Load();
 
@@ -289,6 +304,7 @@ int main(int argc, char *argv[])
     }
 #endif
 
+#ifndef __ANDROID__
     // Check the time since the last time an update was checked. Store the new time if the difference is more than six hours.
     constexpr double TimeBetweenUpdateChecksInSeconds = 6 * 60 * 60;
     time_t timeNow = std::time(nullptr);
@@ -300,6 +316,7 @@ int main(int argc, char *argv[])
         Config::LastChecked = timeNow;
         Config::Save();
     }
+#endif
 
     if (Config::ShowConsole)
         os::process::ShowConsole();
@@ -340,6 +357,11 @@ int main(int argc, char *argv[])
 
     LOGN_WARNING("Start Guest Thread");
     LOGN_WARNING(modulePath.string());
+
+#ifdef __ANDROID__
+    // The guest entry point runs on this (unnamed) thread.
+    os::android::thread_hints::ApplyToMainThread();
+#endif
 
     GuestThread::Start({ entry, 0, 0 });
 

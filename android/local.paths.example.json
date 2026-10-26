@@ -1,0 +1,11 @@
+{
+  "android_sdk": "C:\\Users\\<you>\\AppData\\Local\\Android\\Sdk",
+  "android_ndk": "C:\\Users\\<you>\\AppData\\Local\\Android\\Sdk\\ndk\\29.0.14206865",
+  "jdk17": "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.x-hotspot",
+  "cmake_bin": "C:\\Program Files\\CMake\\bin",
+  "ninja_bin": "C:\\tools\\ninja",
+  "host_llvm_bin": "C:\\Program Files\\LLVM\\bin",
+  "msvc_root": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207",
+  "windows_sdk_root": "C:\\Program Files (x86)\\Windows Kits\\10",
+  "windows_sdk_version": "10.0.26100.0"
+}

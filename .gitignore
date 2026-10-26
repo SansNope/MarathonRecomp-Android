@@ -405,3 +405,13 @@ FodyWeavers.xsd
 UnleashedRecompLib/build
 UnleashedRecompLib/ppc*
 .vscode
+
+# Android port
+android/local.paths.json
+android-apk/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+*.p12
+*.pfx

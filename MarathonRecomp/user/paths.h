@@ -2,6 +2,10 @@
 
 #include <mod/mod_loader.h>
 
+#ifdef __ANDROID__
+#include <os/android/storage_android.h>
+#endif
+
 #define USER_DIRECTORY "MarathonRecomp"
 
 #ifndef GAME_INSTALL_DIRECTORY
@@ -21,6 +25,9 @@ inline std::filesystem::path GetGamePath()
     // /Applications/, and the bundle should not be modified. Thus we need
     // to install game files to the user directory instead of next to the app.
     return GetUserPath();
+#elif defined(__ANDROID__)
+    // Resolved at runtime through SDL/JNI (app-specific storage, see storage_android.cpp).
+    return os::android::GetDataRoot();
 #elif defined(__linux__)
     // On Linux, and some other Unix-like systems like FreeBSD, 
     // following freedesktop's XDG Base Directory Specification is encouraged.

@@ -6,6 +6,9 @@
 #include <kernel/heap.h>
 #include <kernel/function.h>
 #include <os/thread.h>
+#ifdef __ANDROID__
+#include <os/android/logger_android.h>
+#endif
 #include "ppc_context.h"
 
 constexpr size_t PCR_SIZE = 0xAB0;
@@ -74,6 +77,9 @@ static void* GuestThreadFunc(void* arg)
 #else
 static void* GuestThreadFunc(GuestThreadHandle* hThread)
 {
+#endif
+#ifdef __ANDROID__
+    os::android::InstallCrashAltStackForCurrentThread();
 #endif
     hThread->suspended.wait(true);
     GuestThread::Start(hThread->params);

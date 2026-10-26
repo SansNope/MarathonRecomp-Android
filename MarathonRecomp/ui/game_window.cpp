@@ -220,6 +220,17 @@ void GameWindow::Init(const char* sdlVideoDriver)
     SDL_SetHint(SDL_HINT_APP_ID, "io.github.sonicnext_dev.marathonrecomp");
 #endif
 
+#ifdef __ANDROID__
+    // Touches drive the on-screen controls (ui/touch_controls.cpp); synthesised mouse
+    // events would otherwise also trigger the Mouse_* bindings of HID::MouseSDL.
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+
+    // SDLActivity replaces the manifest's sensorLandscape when the window is created: with a
+    // resizable window and no hint it requests SCREEN_ORIENTATION_FULL_USER, so auto-rotate
+    // could turn the game to portrait. Both landscape sides keep USER_LANDSCAPE.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+
     if (sdlVideoDriver)
         SDL_SetHint(SDL_HINT_VIDEO_DRIVER, sdlVideoDriver);
 
@@ -264,6 +275,8 @@ void GameWindow::Init(const char* sdlVideoDriver)
     s_renderWindow = (HWND)SDL_GetPointerProperty(SDL_GetWindowProperties(s_pWindow), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
 #elif defined(PLUME_SDL_VULKAN_ENABLED)
     s_renderWindow = s_pWindow;
+#elif defined(__ANDROID__)
+    s_renderWindow = GetAndroidNativeWindow();
 #elif defined(__linux__)
     s_renderWindow = {
         (Display*)SDL_GetPointerProperty(SDL_GetWindowProperties(s_pWindow), SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr),
@@ -280,6 +293,17 @@ void GameWindow::Init(const char* sdlVideoDriver)
 
     SDL_ShowWindow(s_pWindow);
 }
+
+#ifdef __ANDROID__
+plume::RenderWindow GameWindow::GetAndroidNativeWindow()
+{
+    if (s_pWindow == nullptr)
+        return nullptr;
+
+    // SDL3 updates this property on surfaceCreated and clears it on surfaceDestroyed.
+    return (ANativeWindow*)SDL_GetPointerProperty(SDL_GetWindowProperties(s_pWindow), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+}
+#endif
 
 void GameWindow::Update()
 {

@@ -5,6 +5,7 @@
 #include <hid/message/messages.h>
 #include <hid/peripheral/keyboard.h>
 #include <hid/peripheral/mouse.h>
+#include <hid/peripheral/touch.h>
 #include <os/logger.h>
 #include <patches/loading_patches.h>
 
@@ -254,6 +255,7 @@ namespace HID
         {
             Detach(Find(Keyboard::ID));
             Detach(Find(Mouse::ID));
+            Detach(Find(Touch::ID));
         }
 
         return true;

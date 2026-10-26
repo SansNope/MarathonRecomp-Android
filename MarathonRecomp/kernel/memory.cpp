@@ -20,6 +20,10 @@ Memory::Memory()
     if (base == (uint8_t*)MAP_FAILED)
         base = (uint8_t*)mmap(NULL, PPC_MEMORY_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
 
+    // mmap reports failure with MAP_FAILED, not nullptr; callers check for nullptr.
+    if (base == (uint8_t*)MAP_FAILED)
+        base = nullptr;
+
     if (base == nullptr)
         return;
 

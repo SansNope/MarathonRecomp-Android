@@ -10,7 +10,10 @@
             "platform": "windows"
         },
         "freetype",
-        "curl"
+        {
+            "name": "curl",
+            "platform": "!android"
+        }
     ],
     "vcpkg-configuration": {
         "overlay-triplets": [

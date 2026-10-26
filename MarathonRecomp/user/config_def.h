@@ -19,6 +19,12 @@ CONFIG_DEFINE_LOCALISED("Input", bool, AllowBackgroundInput, false, false);
 CONFIG_DEFINE_ENUM_LOCALISED("Input", EControllerIcons, ControllerIcons, EControllerIcons::Auto, false);
 CONFIG_DEFINE_ENUM_LOCALISED("Input", ELightDash, LightDash, ELightDash::X, false);
 CONFIG_DEFINE_ENUM_LOCALISED("Input", ESlidingAttack, SlidingAttack, ESlidingAttack::X, false);
+#ifdef __ANDROID__
+// Set from the Android launcher; not shown in the in-game options menu yet.
+CONFIG_DEFINE_ENUM("Input", EAndroidTouchControlsPolicy, TouchControls, EAndroidTouchControlsPolicy::Auto, false);
+CONFIG_DEFINE_ENUM("Input", EAndroidTouchCameraMode, TouchCamera, EAndroidTouchCameraMode::TouchArea, false);
+CONFIG_DEFINE_ENUM("Input", EAndroidTouchStickMode, TouchStickMode, EAndroidTouchStickMode::Analog, false);
+#endif
 
 // TODO: action remapping!!
 CONFIG_DEFINE_ENUM("Bindings", SDL_Scancode, Keyboard_South, SDL_SCANCODE_SPACE, false);
@@ -79,6 +85,11 @@ CONFIG_DEFINE_LOCALISED("Audio", bool, MusicAttenuation, false, false);
 
 CONFIG_DEFINE("Video", std::string, GraphicsDevice, "", true);
 CONFIG_DEFINE_ENUM("Video", EGraphicsAPI, GraphicsAPI, EGraphicsAPI::Auto, true);
+#ifdef __ANDROID__
+// Set from the Android launcher; read once at Vulkan startup (os/android/vulkan_driver_android.cpp).
+CONFIG_DEFINE_ENUM("Video", EAndroidVulkanDriver, VulkanDriver, EAndroidVulkanDriver::Auto, true);
+CONFIG_DEFINE_ENUM("Video", EAndroidRenderMode, RenderMode, EAndroidRenderMode::Auto, true);
+#endif
 CONFIG_DEFINE("Video", int32_t, WindowX, CONFIG_WINDOWPOS_CENTRED, false);
 CONFIG_DEFINE("Video", int32_t, WindowY, CONFIG_WINDOWPOS_CENTRED, false);
 CONFIG_DEFINE_LOCALISED("Video", int32_t, WindowSize, -1, false);

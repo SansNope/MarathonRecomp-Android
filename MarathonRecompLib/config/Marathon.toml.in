@@ -3,14 +3,14 @@ file_path = "@XENON_RECOMP_IN_XEX_REL@"
 out_directory_path = "@XENON_RECOMP_OUT_DIR_REL@"
 switch_table_file_path = "@XENON_RECOMP_IN_SWITCH_TABLE_REL@"
 
-skip_lr = false
-skip_msr = false
-ctr_as_local = false
-xer_as_local = false
-reserved_as_local = false
-cr_as_local = false
-non_argument_as_local = false
-non_volatile_as_local = false
+skip_lr = @XENON_RECOMP_SKIP_LR@
+skip_msr = @XENON_RECOMP_SKIP_MSR@
+ctr_as_local = @XENON_RECOMP_CTR_AS_LOCAL@
+xer_as_local = @XENON_RECOMP_XER_AS_LOCAL@
+reserved_as_local = @XENON_RECOMP_RESERVED_AS_LOCAL@
+cr_as_local = @XENON_RECOMP_CR_AS_LOCAL@
+non_argument_as_local = @XENON_RECOMP_NON_ARGUMENT_AS_LOCAL@
+non_volatile_as_local = @XENON_RECOMP_NON_VOLATILE_AS_LOCAL@
 
 restgprlr_14_address = 0x826de8e0
 savegprlr_14_address = 0x826de890

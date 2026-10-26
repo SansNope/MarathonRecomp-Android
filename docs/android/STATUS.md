@@ -1,0 +1,59 @@
+# Test status
+
+[Русская версия](STATUS.ru.md)
+
+> [!IMPORTANT]
+> **We do not promise that the port works on every device.** Everything below was checked on two phones by the developer and testers. Other phones, GPUs and Android versions may not start the game, may show graphics problems or may run slower.
+
+## Tested devices
+
+### POCO F5 — Snapdragon 7+ Gen 2 (SM7475), Adreno 725, Android 17
+
+Settings: driver "A725 Performance (experimental)" (Sysmem), render scale 60 %, VSync, 60 FPS.
+
+- Logos, title screen, menus.
+- HUB (Soleanna) with events, a boss fight, Wave Ocean completed (results screen, back to the town), Dusty Desert.
+- Sound and music, on-screen touch controls, saving and loading.
+- **60 FPS** in the HUB and in levels (Perfetto traces and the built-in `[perf]` log; 59–60 FPS on average outside scene loads).
+- Short FPS drops while scenes load (event, boss, level transitions).
+
+### realme RMX5090 — Snapdragon 8 Elite (SM8750), Adreno 830, Android 16
+
+Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync, 60 FPS.
+
+- HUB with events and a level, no errors in the log.
+- Render scale above 100 % (scene 3474×1579 on a 2780×1264 screen).
+- Going to the background and back (Vulkan surface recreated).
+- Performance described by the tester as excellent; not measured.
+
+## What works
+
+- Building the APK from this repository with the scripts in `android/scripts` (Windows).
+- Launcher: game status, install from ZIP/folder, storage choice, driver and render mode, touch options, logs, Info window, English/Russian.
+- Bundled Turnip drivers on Adreno 725 and Adreno 830; automatic fallback after a failed driver start.
+- Landscape only, both landscape sides.
+- Crash report in `log.txt`.
+
+## Known issues
+
+- **Loading hitches** — scene transitions drop the frame rate for a few seconds.
+- **Touch controls are not context-aware yet** — no D-pad in menus, no single Skip button in cutscenes.
+- **Anti-aliasing option** — disabled in the in-game menu by upstream MarathonRecomp (not implemented); MSAA is off.
+- **Bluetooth controllers through SDL HIDAPI** — the app does not request `BLUETOOTH_CONNECT`; controllers handled by Android itself are expected to work but were not tested.
+- **The first run of each scene** may stutter while Vulkan pipelines are created.
+- The debug APK is signed with each builder's own key (see [BUILDING.md](BUILDING.md#signing)).
+
+## Not tested
+
+- Other Adreno generations (6xx, 7xx other than 725, 8xx other than 830).
+- Mali, Xclipse (Samsung) and PowerVR GPUs (the game uses the system Vulkan driver there).
+- Android 10–15.
+- DLC, a full playthrough, all characters and stages.
+- Physical gamepads.
+- Long sessions on battery, heat and throttling.
+- Render scale above 125 %.
+- Release builds (only debug builds were made).
+
+## Reporting a problem
+
+Attach `log.txt` (launcher → Advanced → Open logs) and write the phone model, the driver and render mode you used, and what you did before the problem. Please report Android problems to this repository, not to upstream MarathonRecomp.

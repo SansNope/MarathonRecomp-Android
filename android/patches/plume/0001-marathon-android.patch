@@ -1,0 +1,277 @@
+diff --git a/plume_render_interface.h b/plume_render_interface.h
+index 2048557..b7819d5 100644
+--- a/plume_render_interface.h
++++ b/plume_render_interface.h
+@@ -98,6 +98,14 @@ namespace plume {
+         virtual RenderTexture *getTexture(uint32_t textureIndex) = 0;
+         virtual uint32_t getTextureCount() const = 0;
+         virtual bool acquireTexture(RenderCommandSemaphore *signalSemaphore, uint32_t *textureIndex) = 0;
++        // MarathonRecomp Android: rebuild the window surface after the platform replaced or lost
++        // the native window. The swap chain itself is recreated by the next resize().
++        virtual bool recreateSurface(RenderWindow renderWindow) { (void)renderWindow; return false; }
++        // MarathonRecomp Android: clockwise rotation in degrees (0, 90, 180 or 270) the presented content
++        // must be pre-rotated by. getWidth()/getHeight() stay in the window's orientation, while the swap
++        // chain textures have width and height swapped for 90 and 270. Takes effect on the next resize().
++        virtual void setPreRotationEnabled(bool enabled) { (void)enabled; }
++        virtual uint32_t getPreRotation() const { return 0; }
+         virtual RenderWindow getWindow() const = 0;
+         virtual bool isEmpty() const = 0;
+ 
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+index a09dd93..a3cc47b 100644
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -2303,6 +2303,19 @@ namespace plume {
+             return false;
+         }
+ 
++#if defined(__ANDROID__)
++        // Android reports SUBOPTIMAL when the display rotation no longer matches preTransform (for
++        // example a 180 degree turn between the two landscape orientations, which keeps the window
++        // size). Only query then, and only with pre-rotation on: an identity swap chain on a rotated
++        // display is suboptimal on every present by design.
++        if ((res == VK_SUBOPTIMAL_KHR) && preRotationEnabled && !preTransformOutdated) {
++            VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
++            vkGetPhysicalDeviceSurfaceCapabilitiesKHR(commandQueue->device->physicalDevice, surface, &surfaceCapabilities);
++            preTransformOutdated = (surfaceCapabilities.currentTransform != preTransform) &&
++                (surfaceCapabilities.supportedTransforms & surfaceCapabilities.currentTransform);
++        }
++#endif
++
+         return true;
+     }
+ 
+@@ -2336,17 +2349,44 @@ namespace plume {
+         width = std::clamp(width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
+         height = std::clamp(height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
+ 
++        uint32_t imageWidth = width;
++        uint32_t imageHeight = height;
++        VkSurfaceTransformFlagBitsKHR pickedTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
++#   if defined(__ANDROID__)
++        // When the display is rotated relative to its natural orientation, an identity swap chain makes
++        // SurfaceFlinger rotate every frame with GPU composition. Pre-rotating lets the hardware composer
++        // scan the buffer out directly; the images then use the natural orientation, so 90 and 270 swap
++        // the extent. The window size and getWidth()/getHeight() stay in the current orientation.
++        preTransformOutdated = false;
++        if (preRotationEnabled && (surfaceCapabilities.supportedTransforms & surfaceCapabilities.currentTransform)) {
++            switch (surfaceCapabilities.currentTransform) {
++            case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
++            case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
++                std::swap(imageWidth, imageHeight);
++                pickedTransform = surfaceCapabilities.currentTransform;
++                break;
++            case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
++                pickedTransform = surfaceCapabilities.currentTransform;
++                break;
++            default:
++                break;
++            }
++        }
++
++        preTransform = pickedTransform;
++#   endif
++
+         createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+         createInfo.surface = surface;
+         createInfo.minImageCount = desc.textureCount;
+         createInfo.imageFormat = pickedSurfaceFormat.format;
+         createInfo.imageColorSpace = pickedSurfaceFormat.colorSpace;
+-        createInfo.imageExtent.width = width;
+-        createInfo.imageExtent.height = height;
++        createInfo.imageExtent.width = imageWidth;
++        createInfo.imageExtent.height = imageHeight;
+         createInfo.imageArrayLayers = 1;
+         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+         createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+-        createInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
++        createInfo.preTransform = pickedTransform;
+         createInfo.compositeAlpha = pickedAlphaFlag;
+         createInfo.presentMode = requiredPresentMode;
+         createInfo.clipped = VK_TRUE;
+@@ -2393,8 +2433,8 @@ namespace plume {
+             textures[i] = VulkanTexture(commandQueue->device, images[i]);
+             textures[i].desc.dimension = RenderTextureDimension::TEXTURE_2D;
+             textures[i].desc.format = desc.format;
+-            textures[i].desc.width = width;
+-            textures[i].desc.height = height;
++            textures[i].desc.width = imageWidth;
++            textures[i].desc.height = imageHeight;
+             textures[i].desc.depth = 1;
+             textures[i].desc.mipLevels = 1;
+             textures[i].desc.arraySize = 1;
+@@ -2409,6 +2449,12 @@ namespace plume {
+     bool VulkanSwapChain::needsResize() const {
+         uint32_t windowWidth, windowHeight;
+         getWindowSize(windowWidth, windowHeight);
++#   if defined(__ANDROID__)
++        if (preTransformOutdated) {
++            return true;
++        }
++#   endif
++
+         return (vk == VK_NULL_HANDLE) || (windowWidth != width) || (windowHeight != height) || (requiredPresentMode != createdPresentMode);
+     }
+ 
+@@ -2444,6 +2490,75 @@ namespace plume {
+         return desc.textureCount;
+     }
+ 
++    bool VulkanSwapChain::recreateSurface(RenderWindow newRenderWindow) {
++#   if defined(__ANDROID__)
++        // Ported from UnleashedRecomp-Android's Plume.
++        VulkanInterface *renderInterface = commandQueue->device->renderInterface;
++
++        // The old surface may still have presents in flight on the queue; make sure the
++        // device is fully idle before destroying the swap chain images underneath them.
++        vkDeviceWaitIdle(commandQueue->device->vk);
++
++        releaseImageViews();
++        releaseSwapChain();
++
++        if (surface != VK_NULL_HANDLE) {
++            vkDestroySurfaceKHR(renderInterface->instance, surface, nullptr);
++            surface = VK_NULL_HANDLE;
++        }
++
++        desc.renderWindow = newRenderWindow;
++        if (desc.renderWindow == nullptr) {
++            return false;
++        }
++
++        VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {};
++        surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
++        surfaceCreateInfo.window = desc.renderWindow;
++
++        VkResult res = vkCreateAndroidSurfaceKHR(renderInterface->instance, &surfaceCreateInfo, nullptr, &surface);
++        if (res != VK_SUCCESS) {
++            fprintf(stderr, "vkCreateAndroidSurfaceKHR failed with error code 0x%X.\n", res);
++            surface = VK_NULL_HANDLE;
++            return false;
++        }
++
++        // Composite alpha support belongs to the surface, so re-pick it for the new one.
++        // The picked surface format is a physical device property and carries over.
++        VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
++        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(commandQueue->device->physicalDevice, surface, &surfaceCapabilities);
++        if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
++            pickedAlphaFlag = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
++        }
++        else if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
++            pickedAlphaFlag = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
++        }
++
++        return true;
++#   else
++        return RenderSwapChain::recreateSurface(newRenderWindow);
++#   endif
++    }
++
++#if defined(__ANDROID__)
++    void VulkanSwapChain::setPreRotationEnabled(bool enabled) {
++        preRotationEnabled = enabled;
++    }
++
++    uint32_t VulkanSwapChain::getPreRotation() const {
++        switch (preTransform) {
++        case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
++            return 90;
++        case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
++            return 180;
++        case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
++            return 270;
++        default:
++            return 0;
++        }
++    }
++#endif
++
+     RenderWindow VulkanSwapChain::getWindow() const {
+         return desc.renderWindow;
+     }
+@@ -2492,8 +2607,19 @@ namespace plume {
+         assert(signalSemaphore != nullptr);
+ 
+         VulkanCommandSemaphore *interfaceSemaphore = static_cast<VulkanCommandSemaphore *>(signalSemaphore);
+-        VkResult res = vkAcquireNextImageKHR(commandQueue->device->vk, vk, UINT64_MAX, interfaceSemaphore->vk, VK_NULL_HANDLE, textureIndex);
++#   if defined(__ANDROID__)
++        // If the ANativeWindow died while the app was backgrounded, an infinite acquire
++        // never returns and freezes the frame loop before lifecycle events can be pumped.
++        // Time out instead; the caller treats the failure as "recreate surface + swap chain".
++        constexpr uint64_t acquireTimeout = 2000000000; // 2 seconds
++#   else
++        constexpr uint64_t acquireTimeout = UINT64_MAX;
++#   endif
++        VkResult res = vkAcquireNextImageKHR(commandQueue->device->vk, vk, acquireTimeout, interfaceSemaphore->vk, VK_NULL_HANDLE, textureIndex);
+         if ((res != VK_SUCCESS) && (res != VK_SUBOPTIMAL_KHR)) {
++#   if defined(__ANDROID__)
++            fprintf(stderr, "vkAcquireNextImageKHR failed with error code 0x%X.\n", res);
++#   endif
+             return false;
+         }
+ 
+@@ -4465,15 +4591,32 @@ namespace plume {
+ 
+     // VulkanInterface
+ 
++#if defined(__ANDROID__)
++    // MarathonRecomp Android: optional custom Vulkan driver (Mesa Turnip) loaded through
++    // libadrenotools, implemented in MarathonRecomp/os/android/vulkan_driver_android.cpp.
++    // Returns nullptr when the normal system loader should be used.
++    extern "C" void *AndroidGetCustomVulkanLoader();
++#endif
++
+ #if defined(PLUME_SDL2_VULKAN_ENABLED)
+     VulkanInterface::VulkanInterface(RenderWindow sdlWindow) {
+ #else
+     VulkanInterface::VulkanInterface() {
+ #endif
+-        VkResult res = volkInitialize();
+-        if (res != VK_SUCCESS) {
+-            fprintf(stderr, "volkInitialize failed with error code 0x%X.\n", res);
+-            return;
++        VkResult res = VK_SUCCESS;
++#if defined(__ANDROID__)
++        void *customLoader = AndroidGetCustomVulkanLoader();
++        if (customLoader != nullptr) {
++            volkInitializeCustom(reinterpret_cast<PFN_vkGetInstanceProcAddr>(customLoader));
++        }
++        else
++#endif
++        {
++            res = volkInitialize();
++            if (res != VK_SUCCESS) {
++                fprintf(stderr, "volkInitialize failed with error code 0x%X.\n", res);
++                return;
++            }
+         }
+ 
+         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+diff --git a/plume_vulkan.h b/plume_vulkan.h
+index 1d36b12..4691d40 100644
+--- a/plume_vulkan.h
++++ b/plume_vulkan.h
+@@ -241,6 +241,11 @@ namespace plume {
+         uint64_t currentPresentId = 0;
+         bool immediatePresentModeSupported = false;
+         bool mailboxPresentModeSupported = false;
++#if defined(__ANDROID__)
++        VkSurfaceTransformFlagBitsKHR preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
++        bool preRotationEnabled = false;
++        bool preTransformOutdated = false;
++#endif
+ 
+         VulkanSwapChain(VulkanCommandQueue *commandQueue, const RenderSwapChainDesc &desc);
+         ~VulkanSwapChain() override;
+@@ -255,6 +260,11 @@ namespace plume {
+         RenderTexture *getTexture(uint32_t textureIndex) override;
+         uint32_t getTextureCount() const override;
+         bool acquireTexture(RenderCommandSemaphore *signalSemaphore, uint32_t *textureIndex) override;
++        bool recreateSurface(RenderWindow renderWindow) override;
++#if defined(__ANDROID__)
++        void setPreRotationEnabled(bool enabled) override;
++        uint32_t getPreRotation() const override;
++#endif
+         RenderWindow getWindow() const override;
+         bool isEmpty() const override;
+         uint32_t getRefreshRate() const override;

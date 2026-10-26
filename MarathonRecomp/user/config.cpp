@@ -33,6 +33,45 @@ CONFIG_DEFINE_ENUM_TEMPLATE(EControllerIcons)
     { "Xbox",        EControllerIcons::Xbox },
     { "PlayStation", EControllerIcons::PlayStation }
 };
+
+// The Android launcher (MarathonLauncherActivity) writes these exact strings.
+CONFIG_DEFINE_ENUM_TEMPLATE(EAndroidTouchControlsPolicy)
+{
+    { "Auto",      EAndroidTouchControlsPolicy::Auto },
+    { "Always On", EAndroidTouchControlsPolicy::AlwaysOn },
+    { "Off",       EAndroidTouchControlsPolicy::Off }
+};
+
+CONFIG_DEFINE_ENUM_TEMPLATE(EAndroidTouchCameraMode)
+{
+    { "Touch Area",  EAndroidTouchCameraMode::TouchArea },
+    { "Right Stick", EAndroidTouchCameraMode::RightStick },
+    { "Off",         EAndroidTouchCameraMode::Off }
+};
+
+CONFIG_DEFINE_ENUM_TEMPLATE(EAndroidTouchStickMode)
+{
+    { "Analog", EAndroidTouchStickMode::Analog },
+    { "D-Pad",  EAndroidTouchStickMode::Dpad }
+};
+
+CONFIG_DEFINE_ENUM_TEMPLATE(EAndroidVulkanDriver)
+{
+    { "Auto",             EAndroidVulkanDriver::Auto },
+    { "System",           EAndroidVulkanDriver::System },
+    { "Bundled",          EAndroidVulkanDriver::Bundled },
+    { "Vauzi710",         EAndroidVulkanDriver::Vauzi710 },
+    { "ExperimentalA725", EAndroidVulkanDriver::ExperimentalA725 },
+    { "Adreno8xx",        EAndroidVulkanDriver::Adreno8xx },
+    { "Imported",         EAndroidVulkanDriver::Imported }
+};
+
+CONFIG_DEFINE_ENUM_TEMPLATE(EAndroidRenderMode)
+{
+    { "Auto",   EAndroidRenderMode::Auto },
+    { "GMEM",   EAndroidRenderMode::GMEM },
+    { "Sysmem", EAndroidRenderMode::Sysmem }
+};
 CONFIG_DEFINE_ENUM_TEMPLATE(ELightDash)
 {
     { "X", ELightDash::X },

@@ -2,7 +2,9 @@
 #include <os/process.h>
 
 std::filesystem::path g_executableRoot = os::process::GetExecutableRoot();
+#ifndef __ANDROID__
 std::filesystem::path g_userPath = BuildUserPath();
+#endif
 
 bool CheckPortable()
 {
@@ -22,6 +24,10 @@ std::filesystem::path BuildUserPath()
         userPath = std::filesystem::path{ knownPath } / USER_DIRECTORY;
 
     CoTaskMemFree(knownPath);
+#elif defined(__ANDROID__)
+    // An app UID has no meaningful $HOME/passwd entry; keep config and saves
+    // next to the game files in app-specific storage (AppStorage.configFile() in the launcher).
+    userPath = os::android::GetDataRoot() / ".config" / USER_DIRECTORY;
 #elif defined(__linux__) || defined(__APPLE__)
     const char* homeDir = getenv("HOME");
 #if defined(__linux__)
@@ -63,5 +69,10 @@ std::filesystem::path BuildUserPath()
 
 const std::filesystem::path& GetUserPath()
 {
+#ifdef __ANDROID__
+    // Lazy: the path is resolved through SDL/JNI, which isn't available yet
+    // when the static initializers of libmain.so run.
+    static std::filesystem::path g_userPath = BuildUserPath();
+#endif
     return g_userPath;
 }

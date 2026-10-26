@@ -54,4 +54,10 @@ public:
     static bool IsPositionValid();
     static void Init(const char* sdlVideoDriver = nullptr);
     static void Update();
+
+#ifdef __ANDROID__
+    // Current ANativeWindow of the game window; Android replaces it across background and
+    // foreground, and it is null while the surface is destroyed.
+    static plume::RenderWindow GetAndroidNativeWindow();
+#endif
 };

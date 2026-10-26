@@ -1,0 +1,25 @@
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR AMD64)
+
+set(MARATHON_HOST_LLVM_HINTS "$ENV{MARATHON_HOST_LLVM_BIN}")
+find_program(MARATHON_HOST_CLANG_CL clang-cl HINTS ${MARATHON_HOST_LLVM_HINTS} REQUIRED)
+find_program(MARATHON_HOST_LLD_LINK lld-link HINTS ${MARATHON_HOST_LLVM_HINTS} REQUIRED)
+find_program(MARATHON_HOST_LLVM_LIB llvm-lib HINTS ${MARATHON_HOST_LLVM_HINTS} REQUIRED)
+find_program(MARATHON_HOST_LLVM_RC llvm-rc HINTS ${MARATHON_HOST_LLVM_HINTS} REQUIRED)
+find_program(MARATHON_HOST_LLVM_MT llvm-mt HINTS ${MARATHON_HOST_LLVM_HINTS})
+
+set(CMAKE_C_COMPILER "${MARATHON_HOST_CLANG_CL}")
+set(CMAKE_CXX_COMPILER "${MARATHON_HOST_CLANG_CL}")
+set(CMAKE_LINKER "${MARATHON_HOST_LLD_LINK}")
+set(CMAKE_AR "${MARATHON_HOST_LLVM_LIB}")
+set(CMAKE_RC_COMPILER "${MARATHON_HOST_LLVM_RC}")
+if (MARATHON_HOST_LLVM_MT)
+    set(CMAKE_MT "${MARATHON_HOST_LLVM_MT}")
+endif()
+
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+
+# clang-cl links through link.exe by default, which only a Visual Studio install provides.
+# Meson takes these flags from CMake, so they also cover its compiler sanity checks.
+set(CMAKE_C_FLAGS_INIT "-fuse-ld=lld")
+set(CMAKE_CXX_FLAGS_INIT "-fuse-ld=lld")

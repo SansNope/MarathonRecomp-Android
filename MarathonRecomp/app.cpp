@@ -13,6 +13,9 @@
 #include <user/paths.h>
 #include <user/registry.h>
 #include <xxHashMap.h>
+#ifdef __ANDROID__
+#include <os/android/frame_diagnostics.h>
+#endif
 
 static std::thread::id g_mainThreadId = std::this_thread::get_id();
 extern std::array<XXH64_hash_t, 29> g_taskUpdatesOnPause;
@@ -75,6 +78,9 @@ PPC_FUNC(sub_825EA610)
     auto pDoc = reinterpret_cast<Sonicteam::DocMarathonState*>(base + ctx.r3.u32);
 
     Video::WaitOnSwapChain();
+#ifdef __ANDROID__
+    os::android::perf::BeginDocUpdate();
+#endif
 
     // Correct small delta time errors.
     if (Config::FPS >= FPS_MIN && Config::FPS < FPS_MAX)
@@ -127,6 +133,9 @@ PPC_FUNC(sub_825EA610)
     }
 
     HID::GetManager()->BroadcastMessage<HID::MsgSetMouseCapture>(pDoc->GetDocMode("GameMode") && !App::s_isPaused);
+#ifdef __ANDROID__
+    os::android::perf::EndDocUpdate();
+#endif
 }
 
 PPC_FUNC_IMPL(__imp__sub_82582648);

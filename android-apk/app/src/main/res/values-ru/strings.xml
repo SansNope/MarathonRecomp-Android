@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="documents_game_title">Файлы игры Marathon Recompiled</string>
+    <string name="documents_game_summary">Игра, настройки и сохранения</string>
+    <string name="documents_save_title">Сохранения Marathon Recompiled</string>
+    <string name="documents_save_summary">Данные сохранений</string>
+    <string name="documents_transfer_title">Обмен Marathon Recompiled</string>
+    <string name="documents_transfer_summary">Импорт драйверов и логи</string>
+
+    <string name="launcher_play">Запустить игру</string>
+    <string name="launcher_game_files">Файлы игры</string>
+    <string name="launcher_open_files">Открыть папку игры</string>
+    <string name="launcher_open_saves">Открыть папку сохранений</string>
+    <string name="launcher_recheck">Проверить снова</string>
+    <string name="launcher_install_game">Установить игру / DLC (.zip / папка)</string>
+    <string name="launcher_section_graphics">Графика</string>
+    <string name="launcher_graphics">Графический драйвер</string>
+    <string name="launcher_driver">Драйвер Vulkan</string>
+    <string name="launcher_render_mode">Режим рендера Turnip</string>
+    <string name="launcher_import_driver">Импорт .so / .zip</string>
+    <string name="launcher_driver_folder">Папка драйверов</string>
+    <string name="launcher_controls">Управление</string>
+    <string name="launcher_touch_policy">Экранное управление</string>
+    <string name="launcher_touch_camera">Управление камерой</string>
+    <string name="launcher_touch_stick">Левый стик</string>
+    <string name="launcher_edit_layout">Расставить экранные кнопки</string>
+    <string name="launcher_section_advanced">Дополнительно</string>
+    <string name="launcher_debug">Отладка</string>
+    <string name="launcher_skip_intro">Пропускать заставки</string>
+    <string name="launcher_open_logs">Открыть логи</string>
+    <string name="launcher_quick_files">Файлы</string>
+    <string name="launcher_exit">Выход</string>
+    <string name="launcher_exit_running">Игра ещё работает в фоне. Выход закроет её, несохранённый прогресс будет потерян.</string>
+    <string name="launcher_info">Инфо</string>
+    <string name="launcher_info_title">О порте</string>
+    <string name="launcher_info_text">Порт сделан «SansNope» с помощью модели от Anthropic «Opus 5.5».\n\nОтдельная ОГРОМНАЯ благодарность «ITSeny» за большой вклад в проект. Благодаря помощи «ITSeny» проект UnleashedRecomp-Android был доведён до ума (он сделал действительно очень много, поверьте). И благодаря его огромному вкладу разработка MarathonRecomp-Android пошла в 10 раз быстрее.\n\nТакже огромная благодарность всем игрокам, кто тестирует и отправляет feedback!\n\nМы рады с помощью новых технологий подарить многим возможность поиграть в эти игры на своих мобильных устройствах.\n\nИконка приложения взята с сайта GameBanana, её автор — «GSNReboot».\n\nЭто неофициальный порт на Android другого проекта с GitHub — MarathonRecomp: https://github.com/sonicnext-dev/MarathonRecomp</string>
+    <string name="launcher_chip_game_ready">Игра готова</string>
+    <string name="launcher_chip_game_missing">Игра не установлена</string>
+    <string name="launcher_chip_dlc">DLC %1$d/%2$d</string>
+    <string name="launcher_summary_driver">Драйвер: %1$s</string>
+    <string name="launcher_driver_pending">Пакетов драйверов к установке при следующем запуске: %1$d.</string>
+    <string name="launcher_driver_installed">Доступен импортированный драйвер: %1$s</string>
+    <string name="launcher_driver_builtin">Доступны встроенные драйверы Turnip и системный драйвер. Импортированного драйвера нет.</string>
+    <string name="launcher_driver_recovery">Прошлый запуск Vulkan не завершился. Автовосстановление один раз использует системный драйвер; если проблема повторится, выберите здесь «Системный».</string>
+    <string name="launcher_log_found">Найден последний лог (%1$s).</string>
+    <string name="launcher_log_missing">Лога пока нет. Он создаётся при запуске игры.</string>
+
+    <string-array name="driver_labels">
+        <item>Авто (рекомендуется)</item><item>Системный</item><item>Встроенный Turnip</item><item>Adreno 710 (Vauzi)</item><item>A725 Performance (экспериментальный; sysmem+nobin)</item><item>Adreno 8xx (Snapdragon 8 Elite; sysmem+nobin)</item><item>Импортированный</item>
+    </string-array>
+    <string-array name="render_mode_labels">
+        <item>Авто (рекомендуется)</item><item>GMEM</item><item>Sysmem</item>
+    </string-array>
+    <string-array name="touch_policy_labels">
+        <item>Авто</item><item>Всегда</item><item>Выкл.</item>
+    </string-array>
+    <string-array name="touch_camera_labels">
+        <item>Свайп по экрану</item><item>Правый стик</item><item>Выкл.</item>
+    </string-array>
+    <string-array name="touch_stick_labels">
+        <item>Аналоговый стик</item><item>Крестовина</item>
+    </string-array>
+
+    <string name="game_ready_all_dlc">Можно запускать. Найдены игра и все DLC.</string>
+    <string name="game_ready_missing_dlc">Можно запускать. DLC: %1$d из %2$d.</string>
+    <string name="error_title">Невозможно продолжить</string>
+    <string name="error_storage_create">Приложение не может создать папку хранилища:\n%1$s\n\nПроверьте свободное место и доступность накопителя.</string>
+    <string name="error_storage_write">Папка игры недоступна для записи:\n%1$s\n\nВозможно, её создал adb или другой пользователь. Удалите её, приложение создаст папку заново.</string>
+    <string name="error_storage_selection">Не удалось сохранить выбор хранилища.</string>
+    <string name="error_game_missing">Файлы игры не установлены. Установите распакованную Xbox 360 игру (папку с default.xex и xenon/) кнопкой «Установить игру» или скопируйте её как game/ в:\n%1$s</string>
+    <string name="error_game_partial">Установка неполная. Отсутствует:%1$s\n\nОжидаемый корень:\n%2$s</string>
+    <string name="error_game_nested">Файлы игры, похоже, лежат не в той папке (%1$s). Переместите папку игры (с default.xex), чтобы она была game/ прямо внутри:\n%2$s</string>
+    <string name="error_settings_save">Не удалось сохранить настройки: %1$s</string>
+    <string name="error_layout_editor">Не удалось открыть редактор раскладки: %1$s</string>
+    <string name="error_layout_requires_game">Редактор раскладки использует рендер игры, поэтому нужна корректная установка игры.</string>
+    <string name="error_driver_extension">Выберите файл Vulkan .so или пакет AdrenoTools/ExynosTools .zip.</string>
+    <string name="error_driver_copy">Не удалось импортировать драйвер: %1$s</string>
+    <string name="error_open_files">Приложение «Файлы» не смогло открыть папку приложения.</string>
+    <string name="error_file_empty">Выбранный файл пуст.</string>
+    <string name="driver_imported">%1$s скопирован. Он будет установлен при запуске игры.</string>
+
+    <string name="install_source_zip">Из ZIP-архива</string>
+    <string name="install_source_folder">Из папки</string>
+    <string name="install_progress_title">Установка…</string>
+    <string name="install_progress_status">Скопировано файлов: %1$d, %2$s</string>
+    <string name="install_scanning">Чтение источника…</string>
+    <string name="install_cancel">Отмена</string>
+    <string name="install_done_game">Файлы игры установлены.</string>
+    <string name="install_cancelled">Установка отменена. Частично скопированные файлы оставлены на месте.</string>
+    <string name="error_install_failed">Ошибка установки: %1$s</string>
+    <string name="error_install_no_game">В выбранном источнике нет игры. Выберите распакованную Xbox 360 игру: папку с default.xex и xenon/archives или папку, где она лежит как game/.</string>
+
+    <string name="storage_choose">Выбрать хранилище игры</string>
+    <string name="storage_current">Хранилище игры:\n%1$s</string>
+    <string name="storage_auto">Автоматически (существующая установка)</string>
+    <string name="storage_internal">Внутренняя память приложения</string>
+    <string name="storage_app">%1$s — папка приложения</string>
+    <string name="storage_media">%1$s — папка Android/media</string>
+    <string name="storage_unavailable">Выбранное хранилище недоступно:\n%1$s\n\nПодключите SD-карту снова или выберите другое место.</string>
+    <string name="storage_confirm">Использовать эту папку для игры, настроек и сохранений:\n%1$s\n\nФайлы в прежней папке останутся. Выберите «Копировать текущую установку», чтобы скопировать и проверить всё перед переключением.</string>
+    <string name="storage_use">Использовать эту папку</string>
+    <string name="storage_copy">Копировать текущую установку</string>
+    <string name="storage_copying">Копирование и проверка игры и сохранений…</string>
+    <string name="storage_copy_progress">Скопировано %1$s. Проверка файлов…</string>
+    <string name="storage_copied">Установка скопирована и проверена. Выбранное хранилище активно, исходные файлы сохранены.</string>
+    <string name="storage_busy">Дождитесь завершения текущей операции с файлами.</string>
+    <string name="storage_restart">Полностью закройте и снова откройте приложение перед сменой хранилища или установкой файлов игры. В этом процессе уже запущена игра.</string>
+    <string name="storage_native_unavailable">Выбранное хранилище игры недоступно или защищено от записи. Подключите SD-карту снова или выберите другое место в лаунчере.</string>
+
+    <string name="error_io_create">Не удалось создать папку:\n%1$s</string>
+    <string name="error_io_read">Не удалось прочитать:\n%1$s</string>
+    <string name="error_copy_separate">Исходная и целевая папки должны быть разными и не вложенными друг в друга.</string>
+    <string name="error_copy_empty">Для копирования нужна пустая целевая папка.</string>
+    <string name="error_copy_link">Установка содержит символическую ссылку, которую нельзя скопировать:\n%1$s</string>
+    <string name="error_copy_verify">Проверка копии не прошла. Текущая установка сохранена. Файл:\n%1$s</string>
+    <string name="error_copy_cancelled">Копирование отменено. Текущая установка сохранена.</string>
+</resources>
