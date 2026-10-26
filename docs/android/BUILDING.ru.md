@@ -119,6 +119,18 @@ adb install -r out\artifacts\MarathonRecomp-Android-debug.apk
 
 Отладочный APK подписывается отладочным ключом Android того компьютера, на котором он собран (`%USERPROFILE%\.android\debug.keystore`). APK, собранный на другом компьютере, не сможет обновить ваш. Android тогда потребует сначала удалить приложение, а **удаление стирает игру, настройки и сохранения в `Android/data`**. Сначала скопируйте сохранения (лаунчер → «Файлы игры» → «Открыть папку сохранений»).
 
+### Release APK
+
+Официальный v0.1.0 — сборка Release с выключенной отладкой, versionCode3 и отдельным ключом проекта. Цепочка сертификатов сохраняет путь обновления от прежних сборок владельца. Приватные ключи и настройки остаются вне Git; публичный сертификат, lineage и пример конфигурации — в [android/signing](../../android/signing/README.md).
+
+После сборки native:
+
+```powershell
+.\android\scripts\Build-Apk.ps1 -Variant Release -ArtifactName MarathonRecomp-Android-v0.1.0-arm64-v8a -SigningConfig C:\private\signing.json
+```
+
+Путь можно задать через `MARATHON_RELEASE_SIGNING_CONFIG`. Без конфигурации подписи release-упаковка завершится ошибкой и не выдаст неподписанный APK за готовый релиз. Храните независимые копии keystore, паролей и lineage. Сборка с самостоятельно созданным другим ключом не обновит официальный релиз.
+
 ## 8. Если что-то не так
 
 | Проблема | Что делать |

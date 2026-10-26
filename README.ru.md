@@ -32,7 +32,7 @@
 
 ## Как играть
 
-1. Соберите APK ([docs/android/BUILDING.ru.md](docs/android/BUILDING.ru.md)) и установите его.
+1. Скачайте APK из [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest) или [соберите самостоятельно](docs/android/BUILDING.ru.md) и установите его. Подробности: [релиз v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Скопируйте папку игры из своей копии для Xbox 360 на телефон и выберите в лаунчере **«Файлы игры» → «Установить игру / DLC (.zip / папка)»**. Лаунчер покажет, что игра готова, и сколько DLC найдено.
 3. Нажмите **«Запустить игру»**. На Adreno оставьте драйвер **«Авто (рекомендуется)»**, если не знаете точно, что нужен другой.
 

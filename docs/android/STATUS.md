@@ -52,7 +52,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Physical gamepads.
 - Long sessions on battery, heat and throttling.
 - Render scale above 125 %.
-- Release builds (only debug builds were made).
+- Installation/gameplay of the newly signed v0.1.0 Release APK. Its native payload is compared with the owner-tested development build; release packaging/signature checks are separate from device testing. A complete clean native build from this public checkout has not been rerun.
 
 ## Reporting a problem
 

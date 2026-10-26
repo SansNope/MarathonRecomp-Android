@@ -1,15 +1,19 @@
 # Packages the APK from android-apk/ with the libmain.so built by Configure-Android.ps1 -Build
 # and the bundled Turnip drivers (android/turnip-drivers, verified against SHA256SUMS).
 # Does not install anything. The debug APK is signed with your local Android debug key;
-# the result contains no game data, but do not redistribute APKs built from your game.
+# game resource files must be supplied separately. Release signing uses external private files.
 param(
     [string]$NativeBuildDir = '',
-    [string]$Variant = 'Debug',
-    [string]$ArtifactName = ''
+    [ValidateSet('Debug', 'Release')][string]$Variant = 'Debug',
+    [string]$ArtifactName = '',
+    [string]$SigningConfig = $env:MARATHON_RELEASE_SIGNING_CONFIG
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $PSScriptRoot 'Enter-Environment.ps1') | Out-Null
+if ($Variant -eq 'Release' -and (-not $SigningConfig -or -not (Test-Path -LiteralPath $SigningConfig -PathType Leaf))) {
+    throw 'Release builds require -SigningConfig or MARATHON_RELEASE_SIGNING_CONFIG (see BUILDING.md).'
+}
 
 if (-not $NativeBuildDir) { $NativeBuildDir = Join-Path $repo 'out\build\android-arm64' }
 if (-not $ArtifactName) { $ArtifactName = "MarathonRecomp-Android-$($Variant.ToLower())" }
@@ -50,7 +54,11 @@ $ErrorActionPreference = 'Stop'
 $apk = Get-ChildItem -LiteralPath (Join-Path $apkProject "app\build\outputs\apk\$($Variant.ToLower())") -Filter '*.apk' | Select-Object -First 1
 if (-not $apk) { throw "No APK produced" }
 $destination = Join-Path $artifacts "$ArtifactName.apk"
-Copy-Item -LiteralPath $apk.FullName -Destination $destination -Force
+if ($Variant -eq 'Release') {
+    & (Join-Path $PSScriptRoot 'Sign-Apk.ps1') -UnsignedApk $apk.FullName -OutputApk $destination -SigningConfig $SigningConfig
+} else {
+    Copy-Item -LiteralPath $apk.FullName -Destination $destination -Force
+}
 $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLower()
 "$hash  $(Split-Path -Leaf $destination)" | Out-File -Encoding ascii "$destination.sha256"
 Write-Output "APK: $destination"

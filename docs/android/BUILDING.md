@@ -119,6 +119,18 @@ Alternatively copy the files over USB with `adb push` into `/sdcard/Android/data
 
 The debug APK is signed with the Android debug key of the machine that built it (`%USERPROFILE%\.android\debug.keystore`). An APK built on another machine cannot update yours. Android then requires uninstalling first, and **uninstalling deletes the game, the settings and the saves stored in `Android/data`**. Copy your saves first (launcher → Game files → Open saves folder).
 
+### Release APK
+
+The official v0.1.0 APK is a non-debuggable Release build (versionCode3), signed with the project's dedicated key. A certificate lineage preserves its update path from the maintainer's development builds. The private keys/configuration are kept outside Git; public verification material and a configuration example are in [android/signing](../../android/signing/README.md).
+
+After the native build, package and sign with:
+
+```powershell
+.\android\scripts\Build-Apk.ps1 -Variant Release -ArtifactName MarathonRecomp-Android-v0.1.0-arm64-v8a -SigningConfig C:\private\signing.json
+```
+
+`MARATHON_RELEASE_SIGNING_CONFIG` can supply the configuration path instead. Release packaging fails if signing is not configured; it does not silently copy an unsigned APK. Keep independent backups of the keystore, passwords and lineage. APKs signed with independently generated keys cannot update official releases.
+
 ## 8. Troubleshooting
 
 | Problem | What to do |

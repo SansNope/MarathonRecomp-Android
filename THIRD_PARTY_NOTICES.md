@@ -1,6 +1,6 @@
 # Third-party notices
 
-MarathonRecomp-Android is distributed under the **GNU General Public License v3.0** ([COPYING](COPYING)), like MarathonRecomp. The components below keep their own licenses; their full license texts are in the listed locations (submodules are fetched by `git submodule update --init --recursive`).
+MarathonRecomp-Android is distributed under the **GNU General Public License v3.0** ([COPYING](COPYING)), like MarathonRecomp. The components below keep their own licenses; their full license texts are in the listed locations (submodules are fetched by `git submodule update --init --recursive`). Release APKs also include collected notices/license texts in `assets/licenses/` (`android-apk/app/src/main/assets/licenses` in this repository).
 
 ## Linked into the APK
 

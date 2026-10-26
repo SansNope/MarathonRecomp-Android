@@ -1,0 +1,2 @@
+# Preserve upstream license notices byte-for-byte, including their original whitespace.
+android-apk/app/src/main/assets/licenses/** -text -whitespace
