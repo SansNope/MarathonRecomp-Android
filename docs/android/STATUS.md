@@ -33,6 +33,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Bundled Turnip drivers on Adreno 725 and Adreno 830; automatic fallback after a failed driver start.
 - Landscape only, both landscape sides.
 - Crash report in `log.txt`.
+- v0.1.5 (Mali support ported from Unleashed, Vulkan 1.2 path) on the POCO F5: starts and plays normally.
 - Updating to the signed v0.1.0 release APK: installed over an earlier debug build on a test phone, saves were kept and the game works. The certificate lineage update path is confirmed on a device.
 
 ## Known issues
@@ -42,12 +43,14 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - **Anti-aliasing option** — disabled in the in-game menu by upstream MarathonRecomp (not implemented); MSAA is off.
 - **Bluetooth controllers through SDL HIDAPI** — the app does not request `BLUETOOTH_CONNECT`; controllers handled by Android itself are expected to work but were not tested.
 - **The first run of each scene** may stutter while Vulkan pipelines are created.
+- **Adreno 610 (Snapdragon 680)** — broken 2D title/menu graphics reported with the default driver ([#2](https://github.com/SansNope/MarathonRecomp-Android/issues/2)); not investigated yet.
 - The debug APK is signed with each builder's own key (see [BUILDING.md](BUILDING.md#signing)).
 
 ## Not tested
 
 - Other Adreno generations (6xx, 7xx other than 725, 8xx other than 830).
-- Mali, Xclipse (Samsung) and PowerVR GPUs (the game uses the system Vulkan driver there).
+- **Mali GPUs — testers wanted.** Since v0.1.5 the port contains the experimental Mali support of UnleashedRecomp-Android (system Vulkan driver, BC textures converted to ETC2/EAC on load). It has not been run on any Mali device. Unleashed reports it working on Valhall GPUs with a Vulkan 1.3 driver (Mali-G610/G615/G710/G715/G720); older Bifrost GPUs (G57, G68, G77…) are not expected to work. Please open an issue with your phone, GPU and `log.txt` either way.
+- Xclipse (Samsung) and PowerVR GPUs (the system Vulkan driver is used there; the same texture fallback applies).
 - Android 10–15.
 - DLC, a full playthrough, all characters and stages.
 - Physical gamepads.

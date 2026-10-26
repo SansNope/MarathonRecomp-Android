@@ -13,6 +13,8 @@ MarathonRecomp-Android is distributed under the **GNU General Public License v3.
 | FFmpeg 7.1.1 with the XMAFRAMES decoder | built by `Build-FFmpeg-Android.ps1` from vcpkg `7087dcfb` and `thirdparty/ffmpeg-core/ffmpeg.patch` | **LGPL-2.1-or-later** (configured without GPL parts) |
 | libadrenotools | `thirdparty/libadrenotools` | BSD-2-Clause (`LICENSE`) |
 | miniz | `thirdparty/miniz` | MIT (`LICENSE`) |
+| etcpak (ETC2/EAC encoder, BC texture fallback) | `thirdparty/etcpak` (copied from UnleashedRecomp-Android) | BSD-3-Clause (`LICENSE.txt`) |
+| bcdec v0.97 (BC decoder, BC texture fallback) | `thirdparty/bcdec` (copied from UnleashedRecomp-Android) | MIT or Unlicense (in `bcdec.h`) |
 | Dear ImGui | `thirdparty/imgui` (submodule) | MIT |
 | ImPlot | `thirdparty/implot` (submodule) | MIT |
 | nlohmann/json | `thirdparty/json` (submodule) | MIT |

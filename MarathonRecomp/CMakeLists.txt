@@ -275,6 +275,16 @@ if (ANDROID)
     # Driver package (.zip) import in os/android/vulkan_driver_android.cpp.
     list(APPEND MARATHON_RECOMP_THIRDPARTY_SOURCES "${MARATHON_RECOMP_THIRDPARTY_ROOT}/miniz/miniz.c")
     list(APPEND MARATHON_RECOMP_THIRDPARTY_INCLUDES "${MARATHON_RECOMP_THIRDPARTY_ROOT}/miniz")
+
+    # BC texture fallback in gpu/video.cpp for GPUs without BC support (stock Mali/PowerVR):
+    # bcdec decodes the blocks, etcpak re-encodes them as ETC2/EAC.
+    list(APPEND MARATHON_RECOMP_THIRDPARTY_SOURCES
+        "${MARATHON_RECOMP_THIRDPARTY_ROOT}/etcpak/ProcessRGB.cpp"
+        "${MARATHON_RECOMP_THIRDPARTY_ROOT}/etcpak/Tables.cpp"
+        "${MARATHON_RECOMP_THIRDPARTY_ROOT}/etcpak/Dither.cpp")
+    list(APPEND MARATHON_RECOMP_THIRDPARTY_INCLUDES
+        "${MARATHON_RECOMP_THIRDPARTY_ROOT}/bcdec"
+        "${MARATHON_RECOMP_THIRDPARTY_ROOT}/etcpak")
 endif()
 
 set_source_files_properties(${MARATHON_RECOMP_THIRDPARTY_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

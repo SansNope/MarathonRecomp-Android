@@ -86,8 +86,8 @@ recommendation. Explicit GMEM and Sysmem selections remain available.
   APK assets, so an asset under `turnip/` would be permanently shadowed by its
   own extracted copy and APK driver updates would never provision.
 - To try a different Turnip build without rebuilding the app, drop a plain `.so`
-  into `Android/data/com.sega.sonicunr/files/driver_import/` (from a PC over MTP)
-  or `Android/media/com.sega.sonicunr/driver_import/` (browsable by on-device
+  into `Android/data/io.github.sansnope.marathonrecomp.android/files/driver_import/` (from a PC over MTP)
+  or `Android/media/io.github.sansnope.marathonrecomp.android/driver_import/` (browsable by on-device
   file managers) on the device.
 
 ## ⚠️ TU_DEBUG must stay `none`

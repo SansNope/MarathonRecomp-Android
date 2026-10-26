@@ -17,11 +17,127 @@ index 2048557..b7819d5 100644
          virtual RenderWindow getWindow() const = 0;
          virtual bool isEmpty() const = 0;
  
+diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+index ad63e0e..33fc1ee 100644
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -166,6 +166,14 @@ namespace plume {
+         BC7_TYPELESS,
+         BC7_UNORM,
+         BC7_UNORM_SRGB,
++        // MarathonRecomp Android: ETC2/EAC targets for transcoding BC textures on GPUs without
++        // BC support (stock Mali/PowerVR drivers). Appended so existing values keep their numbers.
++        ETC2_RGB8_UNORM,
++        ETC2_RGB8_UNORM_SRGB,
++        ETC2_RGBA8_UNORM,
++        ETC2_RGBA8_UNORM_SRGB,
++        EAC_R11_UNORM,
++        EAC_R11G11_UNORM,
+         MAX
+     };
+ 
+@@ -583,6 +591,9 @@ namespace plume {
+         case RenderFormat::BC4_UNORM:
+         case RenderFormat::BC4_SNORM:
+         case RenderFormat::BC4_TYPELESS:
++        case RenderFormat::ETC2_RGB8_UNORM:
++        case RenderFormat::ETC2_RGB8_UNORM_SRGB:
++        case RenderFormat::EAC_R11_UNORM:
+             return 8;
+         case RenderFormat::BC2_UNORM:
+         case RenderFormat::BC2_UNORM_SRGB:
+@@ -596,6 +607,9 @@ namespace plume {
+         case RenderFormat::BC6H_SF16:
+         case RenderFormat::BC7_UNORM:
+         case RenderFormat::BC7_UNORM_SRGB:
++        case RenderFormat::ETC2_RGBA8_UNORM:
++        case RenderFormat::ETC2_RGBA8_UNORM_SRGB:
++        case RenderFormat::EAC_R11G11_UNORM:
+             return 16;
+         default:
+             assert(false && "Unknown format.");
+@@ -680,6 +694,12 @@ namespace plume {
+         case RenderFormat::BC7_TYPELESS:
+         case RenderFormat::BC7_UNORM:
+         case RenderFormat::BC7_UNORM_SRGB:
++        case RenderFormat::ETC2_RGB8_UNORM:
++        case RenderFormat::ETC2_RGB8_UNORM_SRGB:
++        case RenderFormat::ETC2_RGBA8_UNORM:
++        case RenderFormat::ETC2_RGBA8_UNORM_SRGB:
++        case RenderFormat::EAC_R11_UNORM:
++        case RenderFormat::EAC_R11G11_UNORM:
+             return 4;
+         default:
+             assert(false && "Unknown format.");
+@@ -1786,6 +1806,16 @@ namespace plume {
+         bool descriptorIndexing = false;
+         bool scalarBlockLayout = false;
+ 
++        // Upper bounds for a single descriptor set. Renderers sizing large bindless sets must
++        // clamp to these (some mobile drivers report small limits). 0 means unknown.
++        uint32_t maxSampledImageDescriptors = 0;
++        uint32_t maxSamplerDescriptors = 0;
++
++        // Sampled texture compression. BC is universal on desktop but missing on most mobile
++        // drivers (Mali/PowerVR), which expose ETC2/EAC instead.
++        bool textureCompressionBC = false;
++        bool textureCompressionETC2 = false;
++
+         // Buffers.
+         bool bufferDeviceAddress = false;
+         
 diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
-index a09dd93..a3cc47b 100644
+index a09dd93..be7f4d2 100644
 --- a/plume_vulkan.cpp
 +++ b/plume_vulkan.cpp
-@@ -2303,6 +2303,19 @@ namespace plume {
+@@ -249,6 +249,18 @@ namespace plume {
+             return VK_FORMAT_BC7_UNORM_BLOCK;
+         case RenderFormat::BC7_UNORM_SRGB:
+             return VK_FORMAT_BC7_SRGB_BLOCK;
++        case RenderFormat::ETC2_RGB8_UNORM:
++            return VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK;
++        case RenderFormat::ETC2_RGB8_UNORM_SRGB:
++            return VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK;
++        case RenderFormat::ETC2_RGBA8_UNORM:
++            return VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
++        case RenderFormat::ETC2_RGBA8_UNORM_SRGB:
++            return VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
++        case RenderFormat::EAC_R11_UNORM:
++            return VK_FORMAT_EAC_R11_UNORM_BLOCK;
++        case RenderFormat::EAC_R11G11_UNORM:
++            return VK_FORMAT_EAC_R11G11_UNORM_BLOCK;
+         default:
+             assert(false && "Unknown format.");
+             return VK_FORMAT_UNDEFINED;
+@@ -568,8 +580,9 @@ namespace plume {
+         case RenderTextureAddressMode::BORDER:
+             return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+         case RenderTextureAddressMode::MIRROR_ONCE:
+-            assert(samplerMirrorClampToEdgeSupported && "MIRROR_ONCE is not supported when samplerMirrorClampToEdge is not supported.");
+-            return VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE;
++            // MIRROR_CLAMP_TO_EDGE needs the samplerMirrorClampToEdge feature (core 1.2) or its
++            // extension. MIRRORED_REPEAT matches it exactly for coordinates in [-1, 1].
++            return samplerMirrorClampToEdgeSupported ? VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE : VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+         default:
+             assert(false && "Unknown texture address mode.");
+             return VK_SAMPLER_ADDRESS_MODE_MAX_ENUM;
+@@ -930,7 +943,14 @@ namespace plume {
+         info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+         info.pNext = nullptr;
+         info.buffer = vk;
+-        return vkGetBufferDeviceAddress(device->vk, &info);
++
++        // Devices below API 1.2 only implement this through VK_KHR_buffer_device_address, in
++        // which case the core-named entry point stays null.
++        if (vkGetBufferDeviceAddress != nullptr) {
++            return vkGetBufferDeviceAddress(device->vk, &info);
++        }
++
++        return vkGetBufferDeviceAddressKHR(device->vk, &info);
+     }
+ 
+     // VulkanBufferFormattedView
+@@ -2303,6 +2323,19 @@ namespace plume {
              return false;
          }
  
@@ -41,7 +157,7 @@ index a09dd93..a3cc47b 100644
          return true;
      }
  
-@@ -2336,17 +2349,44 @@ namespace plume {
+@@ -2336,17 +2369,44 @@ namespace plume {
          width = std::clamp(width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
          height = std::clamp(height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
  
@@ -89,7 +205,7 @@ index a09dd93..a3cc47b 100644
          createInfo.compositeAlpha = pickedAlphaFlag;
          createInfo.presentMode = requiredPresentMode;
          createInfo.clipped = VK_TRUE;
-@@ -2393,8 +2433,8 @@ namespace plume {
+@@ -2393,8 +2453,8 @@ namespace plume {
              textures[i] = VulkanTexture(commandQueue->device, images[i]);
              textures[i].desc.dimension = RenderTextureDimension::TEXTURE_2D;
              textures[i].desc.format = desc.format;
@@ -100,7 +216,7 @@ index a09dd93..a3cc47b 100644
              textures[i].desc.depth = 1;
              textures[i].desc.mipLevels = 1;
              textures[i].desc.arraySize = 1;
-@@ -2409,6 +2449,12 @@ namespace plume {
+@@ -2409,6 +2469,12 @@ namespace plume {
      bool VulkanSwapChain::needsResize() const {
          uint32_t windowWidth, windowHeight;
          getWindowSize(windowWidth, windowHeight);
@@ -113,7 +229,7 @@ index a09dd93..a3cc47b 100644
          return (vk == VK_NULL_HANDLE) || (windowWidth != width) || (windowHeight != height) || (requiredPresentMode != createdPresentMode);
      }
  
-@@ -2444,6 +2490,75 @@ namespace plume {
+@@ -2444,6 +2510,75 @@ namespace plume {
          return desc.textureCount;
      }
  
@@ -189,7 +305,7 @@ index a09dd93..a3cc47b 100644
      RenderWindow VulkanSwapChain::getWindow() const {
          return desc.renderWindow;
      }
-@@ -2492,8 +2607,19 @@ namespace plume {
+@@ -2492,8 +2627,19 @@ namespace plume {
          assert(signalSemaphore != nullptr);
  
          VulkanCommandSemaphore *interfaceSemaphore = static_cast<VulkanCommandSemaphore *>(signalSemaphore);
@@ -210,7 +326,161 @@ index a09dd93..a3cc47b 100644
              return false;
          }
  
-@@ -4465,15 +4591,32 @@ namespace plume {
+@@ -3835,17 +3981,34 @@ namespace plume {
+         // Store properties.
+         vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+ 
+-        // Check for supported features.
++        // Check for supported features. The effective device version is capped by the version
++        // requested at instance creation (appInfo.apiVersion).
++        const uint32_t effectiveApiVersion = std::min(renderInterface->appInfo.apiVersion, physicalDeviceProperties.apiVersion);
++        const bool coreVulkan12 = effectiveApiVersion >= VK_API_VERSION_1_2;
++
++        // MarathonRecomp Android: on Vulkan 1.2+ devices the promoted features (descriptor indexing,
++        // scalar block layout, buffer device address, samplerMirrorClampToEdge) are queried and enabled
++        // through VkPhysicalDeviceVulkan12Features. Drivers that ship them only as core functionality
++        // (e.g. stock Mali/PowerVR) don't have to list the pre-promotion extension strings, and the
++        // spec forbids mixing the core struct with the individual promoted structs. Devices below 1.2
++        // keep using the extension structs.
+         void *featuresChain = nullptr;
++        VkPhysicalDeviceVulkan12Features vulkan12Features = {};
++        if (coreVulkan12) {
++            vulkan12Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
++            featuresChain = &vulkan12Features;
++        }
++
+         VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures = {};
+-        const bool descriptorIndexingFound = supportedOptionalExtensions.find(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) != supportedOptionalExtensions.end();
++        const bool descriptorIndexingFound = !coreVulkan12 && supportedOptionalExtensions.find(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) != supportedOptionalExtensions.end();
+         if (descriptorIndexingFound) {
+             indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
++            indexingFeatures.pNext = featuresChain;
+             featuresChain = &indexingFeatures;
+         }
+ 
+         VkPhysicalDeviceScalarBlockLayoutFeatures layoutFeatures = {};
+-        const bool scalarBlockLayoutFound = supportedOptionalExtensions.find(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME) != supportedOptionalExtensions.end();
++        const bool scalarBlockLayoutFound = !coreVulkan12 && supportedOptionalExtensions.find(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME) != supportedOptionalExtensions.end();
+         if (scalarBlockLayoutFound) {
+             layoutFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES;
+             layoutFeatures.pNext = featuresChain;
+@@ -3874,7 +4037,7 @@ namespace plume {
+         }
+ 
+         VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures = {};
+-        const bool bufferDeviceAddressFound = supportedOptionalExtensions.find(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) != supportedOptionalExtensions.end();
++        const bool bufferDeviceAddressFound = !coreVulkan12 && supportedOptionalExtensions.find(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) != supportedOptionalExtensions.end();
+         if (bufferDeviceAddressFound) {
+             bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+             bufferDeviceAddressFeatures.pNext = featuresChain;
+@@ -3938,14 +4101,26 @@ namespace plume {
+             createDeviceChain = &accelerationStructureFeatures;
+         }
+ 
+-        const bool descriptorIndexingSupported = indexingFeatures.descriptorBindingPartiallyBound && indexingFeatures.descriptorBindingVariableDescriptorCount && indexingFeatures.runtimeDescriptorArray;
+-        if (descriptorIndexingSupported) {
++        const bool descriptorIndexingSupported = coreVulkan12
++            ? (vulkan12Features.descriptorBindingPartiallyBound && vulkan12Features.descriptorBindingVariableDescriptorCount && vulkan12Features.runtimeDescriptorArray)
++            : (indexingFeatures.descriptorBindingPartiallyBound && indexingFeatures.descriptorBindingVariableDescriptorCount && indexingFeatures.runtimeDescriptorArray);
++        if (!coreVulkan12 && descriptorIndexingSupported) {
+             indexingFeatures.pNext = createDeviceChain;
+             createDeviceChain = &indexingFeatures;
+         }
+ 
+-        const bool scalarBlockLayoutSupported = layoutFeatures.scalarBlockLayout;
+-        if (scalarBlockLayoutSupported) {
++        VkPhysicalDeviceDescriptorIndexingProperties indexingProperties = {};
++        if (descriptorIndexingSupported) {
++            indexingProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES;
++
++            VkPhysicalDeviceProperties2 deviceProperties2 = {};
++            deviceProperties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
++            deviceProperties2.pNext = &indexingProperties;
++            vkGetPhysicalDeviceProperties2(physicalDevice, &deviceProperties2);
++        }
++
++        const bool scalarBlockLayoutSupported = coreVulkan12 ? bool(vulkan12Features.scalarBlockLayout) : bool(layoutFeatures.scalarBlockLayout);
++        if (!coreVulkan12 && scalarBlockLayoutSupported) {
+             layoutFeatures.pNext = createDeviceChain;
+             createDeviceChain = &layoutFeatures;
+         }
+@@ -3965,11 +4140,30 @@ namespace plume {
+             createDeviceChain = &robustnessFeatures;
+         }
+ 
+-        const bool bufferDeviceAddressSupported = bufferDeviceAddressFeatures.bufferDeviceAddress;
+-        if (bufferDeviceAddressSupported) {
++        const bool bufferDeviceAddressSupported = coreVulkan12 ? bool(vulkan12Features.bufferDeviceAddress) : bool(bufferDeviceAddressFeatures.bufferDeviceAddress);
++        if (!coreVulkan12 && bufferDeviceAddressSupported) {
+             bufferDeviceAddressFeatures.pNext = createDeviceChain;
+             createDeviceChain = &bufferDeviceAddressFeatures;
+         }
++
++        if (coreVulkan12) {
++            // Enable every supported 1.2 feature as queried, like the individual structs above.
++            vulkan12Features.pNext = createDeviceChain;
++            createDeviceChain = &vulkan12Features;
++        }
++
++        // Every recompiled shader loads its constants through buffer device addresses with scalar
++        // layout. Fail here with a clear message instead of creating broken pipelines later.
++        if (!scalarBlockLayoutSupported || !bufferDeviceAddressSupported) {
++            fprintf(stderr, "Unable to create device. Required features are missing: scalarBlockLayout=%d, bufferDeviceAddress=%d (API version %u.%u).\n",
++                int(scalarBlockLayoutSupported), int(bufferDeviceAddressSupported),
++                VK_API_VERSION_MAJOR(effectiveApiVersion), VK_API_VERSION_MINOR(effectiveApiVersion));
++            return;
++        }
++
++        const bool samplerMirrorClampToEdgeSupported =
++            (coreVulkan12 && vulkan12Features.samplerMirrorClampToEdge) ||
++            (supportedOptionalExtensions.find(VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME) != supportedOptionalExtensions.end());
+         
+         if (portabilityFound) {
+             portabilityFeatures.pNext = createDeviceChain;
+@@ -4061,6 +4255,11 @@ namespace plume {
+             return;
+         }
+ 
++        // Resolve device-level entry points through vkGetDeviceProcAddr. The instance-level
++        // trampolines are not guaranteed to cover device extensions (e.g. the KHR buffer device
++        // address entry point on devices below 1.2) on Android's loader.
++        volkLoadDevice(vk);
++
+         for (uint32_t i = 0; i < queueFamilyCount; i++) {
+             for (uint32_t j = 0; j < queueFamilies[i].queues.size(); j++) {
+                 vkGetDeviceQueue(vk, i, j, &queueFamilies[i].queues[j].vk);
+@@ -4094,7 +4293,9 @@ namespace plume {
+         allocatorInfo.device = vk;
+         allocatorInfo.pVulkanFunctions = &vmaFunctions;
+         allocatorInfo.instance = renderInterface->instance;
+-        allocatorInfo.vulkanApiVersion = renderInterface->appInfo.apiVersion;
++        // VMA needs the effective version: passing 1.2 for a 1.1-only device makes it resolve core
++        // 1.2 entry points that the driver only exports under their KHR names.
++        allocatorInfo.vulkanApiVersion = effectiveApiVersion;
+ 
+         res = vmaCreateAllocator(&allocatorInfo, &allocator);
+         if (res != VK_SUCCESS) {
+@@ -4134,8 +4335,18 @@ namespace plume {
+         capabilities.resolveModes = false;
+         capabilities.descriptorIndexing = descriptorIndexingSupported;
+         capabilities.scalarBlockLayout = scalarBlockLayoutSupported;
++        if (descriptorIndexingSupported) {
++            capabilities.maxSampledImageDescriptors = std::min(indexingProperties.maxDescriptorSetUpdateAfterBindSampledImages, indexingProperties.maxPerStageDescriptorUpdateAfterBindSampledImages);
++            capabilities.maxSamplerDescriptors = std::min(indexingProperties.maxDescriptorSetUpdateAfterBindSamplers, indexingProperties.maxPerStageDescriptorUpdateAfterBindSamplers);
++        }
++        else {
++            capabilities.maxSampledImageDescriptors = std::min(physicalDeviceProperties.limits.maxDescriptorSetSampledImages, physicalDeviceProperties.limits.maxPerStageDescriptorSampledImages);
++            capabilities.maxSamplerDescriptors = std::min(physicalDeviceProperties.limits.maxDescriptorSetSamplers, physicalDeviceProperties.limits.maxPerStageDescriptorSamplers);
++        }
++        capabilities.textureCompressionBC = deviceFeatures.features.textureCompressionBC;
++        capabilities.textureCompressionETC2 = deviceFeatures.features.textureCompressionETC2;
+         capabilities.bufferDeviceAddress = bufferDeviceAddressSupported;
+-        capabilities.samplerMirrorClampToEdge = supportedOptionalExtensions.find(VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME) != supportedOptionalExtensions.end();
++        capabilities.samplerMirrorClampToEdge = samplerMirrorClampToEdgeSupported;
+         capabilities.presentWait = presentWaitSupported;
+         capabilities.displayTiming = supportedOptionalExtensions.find(VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) != supportedOptionalExtensions.end();
+         capabilities.maxTextureSize = physicalDeviceProperties.limits.maxImageDimension2D;
+@@ -4465,15 +4676,32 @@ namespace plume {
  
      // VulkanInterface
  

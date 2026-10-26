@@ -17,6 +17,8 @@
 | POCO F5 | Snapdragon 7+ Gen 2 (SM7475) / Adreno 725 | 17 | Menus, HUB with events, a boss, Wave Ocean (completed), Dusty Desert. Sound, touch controls and saves work. **60 FPS** in the HUB and in levels at 60 % render scale; short drops while scenes load. |
 | realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB with events and a level at **125 %** render scale, no errors; the tester describes the performance as excellent (not measured). |
 
+**Mali GPUs: experimental support since v0.1.5, not tested on any device yet — testers wanted** (see [STATUS](docs/android/STATUS.md)).
+
 Not tested: other Adreno generations, Mali, Xclipse and PowerVR GPUs, Android 10–15, DLC, a full playthrough, physical gamepads, long sessions on battery. Details and known issues: [docs/android/STATUS.md](docs/android/STATUS.md).
 
 ## What the port adds
@@ -24,6 +26,7 @@ Not tested: other Adreno generations, Mali, Xclipse and PowerVR GPUs, Android 10
 - **Android build** of MarathonRecomp with the NDK (arm64-v8a, Android 10+), SDL3, FFmpeg with the Xbox 360 XMA decoder, and Vulkan through Plume.
 - **Launcher** in the style of the 2006 menus: installs the game from a ZIP or a folder, picks the storage, Vulkan driver and render mode, touch-control options and layout editor, opens logs and saves, and shows the [Info](INFO.md) window. English and Russian (follows the system language).
 - **Vulkan drivers:** bundled Mesa Turnip builds for Adreno (selected automatically) and import of your own driver (`.so` or AdrenoTools/ExynosTools `.zip`), with automatic fallback after a failed driver start.
+- **Experimental Mali / PowerVR support** (from UnleashedRecomp-Android): system Vulkan driver, BC textures converted to ETC2/EAC on load.
 - **On-screen touch controls** with a layout editor.
 - **Android-specific performance work:** swap-chain pre-rotation (no extra GPU composition by the system), worker threads kept off the little CPU cores when the SoC has them, a tested set of XenonRecomp optimizations, render-scale handling that keeps the HUD at native resolution.
 - **Diagnostics:** `log.txt` with device info and a crash report, optional per-frame timing.
@@ -32,7 +35,7 @@ How and why each part was done: [docs/android/TECHNICAL.md](docs/android/TECHNIC
 
 ## Playing
 
-1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. See the [v0.1.0 release notes](docs/android/RELEASE-v0.1.0.md).
+1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Copy the game folder of your Xbox 360 copy to the phone and choose **Game files → Install game / DLC (.zip / folder)** in the launcher. The launcher shows when the game is ready and how many DLC packs were found.
 3. Press **Launch game**. On Adreno GPUs keep the driver on **Auto (recommended)** unless you know you need another one.
 

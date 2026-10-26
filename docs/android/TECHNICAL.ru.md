@@ -30,6 +30,8 @@ MarathonRecomp во время сборки превращает исполня�
 - **Pre-rotation swapchain** — у телефонов экран физически портретный. Со swapchain без поворота SurfaceFlinger поворачивал каждый альбомный кадр через композицию на GPU — на том же GPU, что и игра. Теперь swapchain создаётся с `preTransform = currentTransform`, а финальный гамма-проход сразу пишет повёрнутое изображение (`gamma_correction_ps.hlsl`). Экран выводит его напрямую. Файл `prerotation.disabled` возвращает старый путь.
 - **Масштаб разрешения** — уменьшаются или увеличиваются только буферы сцены, а back buffer и HUD остаются в полном размере экрана: сцену растягивает собственный проход игры «Rasterize». В оригинале масштабировалось всё, и на телефонах картинка обрезалась или увеличивался HUD. Проверено при 60 % и 125 %.
 - **Только альбомная ориентация** — SDL заменял `sensorLandscape` из манифеста на «любую ориентацию» для окна с изменяемым размером; `SDL_HINT_ORIENTATIONS = "LandscapeLeft LandscapeRight"` это исправляет.
+- **GPU без текстур BC (Mali, PowerVR; v0.1.5, перенесено из UnleashedRecomp-Android 1.5.0)** — текстуры игры сжаты в BC (DXT), а стоковые драйверы Mali/PowerVR их не читают. Если устройство не поддерживает BC, `LoadTexture` при загрузке распаковывает блоки через [bcdec](https://github.com/iOrange/bcdec) и перекодирует в ETC2/EAC через [etcpak](https://github.com/wolfpld/etcpak) (тот же объём памяти, кроме прозрачных BC1); без ETC2 текстуры распаковываются в RGBA. BC-текстуры, которые игра создаёт сама, создаются как RGBA8. Наборы дескрипторов текстур и сэмплеров ограничиваются лимитами устройства. `bc_fallback.enabled` включает этот путь на Adreno для проверки (со словом `decode` внутри — RGBA вместо ETC2). **На устройстве с Mali ещё не проверено.**
+- **Путь Vulkan 1.2 в Plume (v0.1.5)** — на драйверах 1.2+ descriptor indexing, scalar block layout, buffer device address и mirror clamp включаются через `VkPhysicalDeviceVulkan12Features`: драйверы вроде стокового Mali не обязаны перечислять старые имена расширений. `MIRROR_ONCE` заменяется на `MIRRORED_REPEAT`, если не поддерживается, функции устройства загружаются через `volkLoadDevice`, а GPU без scalar block layout или buffer device address теперь завершает запуск с понятным сообщением в `log.txt`. Turnip (Adreno) тоже идёт этим путём; проверено на Adreno 725.
 
 ## 4. Драйверы Vulkan (`os/android/vulkan_driver_android.cpp`, `android/turnip-drivers`)
 
@@ -72,5 +74,6 @@ MarathonRecomp во время сборки превращает исполня�
 | `thread_affinity.disabled` | без закрепления рабочих потоков |
 | `thread_affinity.enabled` | переопределения `cpus=4-7`, `workers=…` |
 | `thread_uclamp.enabled` | uclamp для потоков (прошивки часто запрещают) |
+| `bc_fallback.enabled` | проверка перекодирования BC→ETC2 на GPU с поддержкой BC (`decode` внутри — BC→RGBA) |
 
 Папка игры — `Android/data/io.github.sansnope.marathonrecomp.android/files/MarathonRecomp`, если в лаунчере не выбрано другое хранилище.

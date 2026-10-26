@@ -30,6 +30,8 @@ MarathonRecomp turns the Xbox 360 executable and shaders into C++ and shader cod
 - **Swap-chain pre-rotation** — phones have portrait panels. With an identity swap chain SurfaceFlinger rotated every landscape frame with GPU composition, on the same GPU as the game. The swap chain now uses `preTransform = currentTransform`, and the final gamma pass writes the image already rotated (`gamma_correction_ps.hlsl`). The display then scans it out directly. `prerotation.disabled` restores the old path.
 - **Resolution scale** — the scene render targets are scaled, while the back buffer and the HUD keep the full screen size: the game's own "Rasterize" pass stretches the scene. Upstream scaled everything, which cropped the image or enlarged the HUD on phones. Verified at 60 % and 125 %.
 - **Landscape only** — SDL replaced the manifest's `sensorLandscape` with "any orientation" for the resizable window; `SDL_HINT_ORIENTATIONS = "LandscapeLeft LandscapeRight"` fixes that.
+- **GPUs without BC textures (Mali, PowerVR; v0.1.5, ported from UnleashedRecomp-Android 1.5.0)** — the game's textures are BC (DXT) compressed, which stock Mali/PowerVR drivers cannot sample. When the device reports no BC support, `LoadTexture` decodes the blocks with [bcdec](https://github.com/iOrange/bcdec) and re-encodes them as ETC2/EAC with [etcpak](https://github.com/wolfpld/etcpak) at load time (same memory size, except transparent BC1); without ETC2 the textures are decoded to RGBA. BC textures the game creates itself are created as RGBA8. The texture/sampler descriptor sets are clamped to the device limits. `bc_fallback.enabled` forces this path on Adreno for testing (with the word `decode` inside: RGBA instead of ETC2). **Not tested on a Mali device yet.**
+- **Vulkan 1.2 feature path in Plume (v0.1.5)** — on 1.2+ drivers descriptor indexing, scalar block layout, buffer device address and mirror-clamp sampling are enabled through `VkPhysicalDeviceVulkan12Features`, because drivers such as stock Mali do not have to list the old extension names. `MIRROR_ONCE` falls back to `MIRRORED_REPEAT` when unsupported, device functions are loaded with `volkLoadDevice`, and a GPU without scalar block layout or buffer device address now fails with a clear message in `log.txt`. Turnip (Adreno) also takes this path; checked on Adreno 725.
 
 ## 4. Vulkan drivers (`os/android/vulkan_driver_android.cpp`, `android/turnip-drivers`)
 
@@ -72,5 +74,6 @@ Measured on a POCO F5 (SM7475) in the HUB, with `perf_capture.enabled` and Perfe
 | `thread_affinity.disabled` | no worker affinity |
 | `thread_affinity.enabled` | `cpus=4-7`, `workers=…` overrides |
 | `thread_uclamp.enabled` | per-thread uclamp (often rejected by firmware) |
+| `bc_fallback.enabled` | test the BC→ETC2 texture fallback on a GPU with BC support (`decode` inside: BC→RGBA) |
 
 The game folder is `Android/data/io.github.sansnope.marathonrecomp.android/files/MarathonRecomp` unless another storage was chosen in the launcher.
