@@ -49,7 +49,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 ## Not tested
 
 - Other Adreno generations (6xx, 7xx other than 725, 8xx other than 830).
-- **Mali GPUs — testers wanted.** Since v0.1.5 the port contains the experimental Mali support of UnleashedRecomp-Android (system Vulkan driver, BC textures converted to ETC2/EAC on load). It has not been run on any Mali device. Unleashed reports it working on Valhall GPUs with a Vulkan 1.3 driver (Mali-G610/G615/G710/G715/G720); older Bifrost GPUs (G57, G68, G77…) are not expected to work. Please open an issue with your phone, GPU and `log.txt` either way.
+- **Mali GPUs — testers wanted.** Since v0.1.5 the port contains the experimental Mali support of UnleashedRecomp-Android (system Vulkan driver, BC textures converted to ETC2/EAC on load). First reports from two Helio G99 devices (Mali-G57 MC2): the game does not start yet — a crash in the Mali driver before the first frame on one, failed graphics pipeline creation followed by a crash on the other. This is being investigated. In UnleashedRecomp-Android, Valhall GPUs work (confirmed there: Mali-G57 MC2, G68 MP5, G77 MC9 and newer); Bifrost GPUs (G31, G51, G52, G71, G72, G76) are not supported. Please open an issue with your phone, GPU and `log.txt` either way.
 - Xclipse (Samsung) and PowerVR GPUs (the system Vulkan driver is used there; the same texture fallback applies).
 - Android 10–15.
 - DLC, a full playthrough, all characters and stages.

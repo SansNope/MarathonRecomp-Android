@@ -17,7 +17,8 @@ Experimental support for Mali GPUs, ported from [UnleashedRecomp-Android](https:
 ## Tested
 
 - **POCO F5 / Snapdragon 7+ Gen 2 / Adreno 725 / Android 17:** v0.1.5 starts and plays normally (the Vulkan 1.2 path is also used by Turnip on Adreno).
-- **Mali:** not tested. According to UnleashedRecomp-Android, Valhall GPUs with a Vulkan 1.3 driver (Mali-G610/G615/G710/G715/G720) can work; older Bifrost GPUs (G57, G68, G77…) are not expected to work.
+- **Mali:** not tested before the release. In UnleashedRecomp-Android, Valhall GPUs work (confirmed there: Mali-G57 MC2, G68 MP5, G77 MC9 and newer); Bifrost GPUs (G31, G51, G52, G71, G72, G76) are not supported. *Correction: the first version of these notes wrongly listed G57, G68 and G77 as Bifrost.*
+- **Update:** the first reports from two Helio G99 devices (Mali-G57 MC2) show that the game does not start on them yet (a crash in the Mali driver / failed pipeline creation). This is being investigated; see [STATUS](https://github.com/SansNope/MarathonRecomp-Android/blob/main/docs/android/STATUS.md).
 - realme RMX5090 (Snapdragon 8 Elite) was tested with v0.1.0, not yet with v0.1.5.
 
 ## Known issues
@@ -48,6 +49,6 @@ Mali support and the texture fallback come from UnleashedRecomp-Android 1.5.0. T
 - Для проверки на Adreno: пустой файл `bc_fallback.enabled` в папке игры включает путь ETC2, со словом `decode` внутри — путь RGBA.
 - Версия 0.1.5 (код 4), тот же ключ подписи, что у v0.1.0: ставится поверх v0.1.0 с сохранением данных.
 
-**Проверено:** POCO F5 (Adreno 725, Android 17) — v0.1.5 запускается и играется нормально. **Mali не проверялся.** По данным UnleashedRecomp-Android, могут работать Valhall с драйвером Vulkan 1.3 (Mali-G610/G615/G710/G715/G720); старые Bifrost (G57, G68, G77…) работать не должны. realme RMX5090 (Snapdragon 8 Elite) проверялся на v0.1.0, на v0.1.5 ещё нет.
+**Проверено:** POCO F5 (Adreno 725, Android 17) — v0.1.5 запускается и играется нормально. **Mali не проверялся.** В UnleashedRecomp-Android поколение Valhall работает (там подтверждены Mali-G57 MC2, G68 MP5, G77 MC9 и новее); Bifrost (G31, G51, G52, G71, G72, G76) не поддерживается. *Исправление: в первой версии этого текста G57, G68 и G77 ошибочно названы Bifrost.* **Обновление:** первые отчёты с двух устройств на Helio G99 (Mali-G57 MC2) — игра на них пока не запускается (падение в драйвере Mali / ошибки создания конвейеров); разбираемся, подробности в [STATUS](https://github.com/SansNope/MarathonRecomp-Android/blob/main/docs/android/STATUS.ru.md). realme RMX5090 (Snapdragon 8 Elite) проверялся на v0.1.0, на v0.1.5 ещё нет.
 
 **Известные проблемы:** Adreno 610 (Snapdragon 680) — сломанная 2D-графика титульного экрана и меню со встроенным драйвером ([#2](https://github.com/SansNope/MarathonRecomp-Android/issues/2)); просадки FPS при переходах между сценами. Мы не обещаем работу на всех устройствах.
