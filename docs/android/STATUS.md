@@ -33,6 +33,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Bundled Turnip drivers on Adreno 725 and Adreno 830; automatic fallback after a failed driver start.
 - Landscape only, both landscape sides.
 - Crash report in `log.txt`.
+- Updating to the signed v0.1.0 release APK: installed over an earlier debug build on a test phone, saves were kept and the game works. The certificate lineage update path is confirmed on a device.
 
 ## Known issues
 
@@ -52,7 +53,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Physical gamepads.
 - Long sessions on battery, heat and throttling.
 - Render scale above 125 %.
-- Installation/gameplay of the newly signed v0.1.0 Release APK. Its native payload is compared with the owner-tested development build; release packaging/signature checks are separate from device testing. A complete clean native build from this public checkout has not been rerun.
+- A complete clean native build from this public checkout (the v0.1.0 native libraries are byte-identical to the tested development build).
 
 ## Reporting a problem
 
