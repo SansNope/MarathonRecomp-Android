@@ -17,7 +17,7 @@
 | POCO F5 | Snapdragon 7+ Gen 2 (SM7475) / Adreno 725 | 17 | Menus, HUB with events, a boss, Wave Ocean (completed), Dusty Desert. Sound, touch controls and saves work. **60 FPS** in the HUB and in levels at 60 % render scale; short drops while scenes load. |
 | realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB with events and a level at **125 %** render scale, no errors; the tester describes the performance as excellent (not measured). |
 
-**Mali GPUs: experimental support since v0.1.5, not tested on any device yet — testers wanted** (see [STATUS](docs/android/STATUS.md)).
+**Mali GPUs: the game starts and plays since v0.1.6** on Mali-G57 MC2 (Helio G99) and Mali-G710 (Pixel 7 Pro), but performance on Mali is not good yet — we are working on it (see [STATUS](docs/android/STATUS.md)).
 
 Not tested: other Adreno generations, Mali, Xclipse and PowerVR GPUs, Android 10–15, DLC, a full playthrough, physical gamepads, long sessions on battery. Details and known issues: [docs/android/STATUS.md](docs/android/STATUS.md).
 
@@ -35,7 +35,7 @@ How and why each part was done: [docs/android/TECHNICAL.md](docs/android/TECHNIC
 
 ## Playing
 
-1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
+1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Copy the game folder of your Xbox 360 copy to the phone and choose **Game files → Install game / DLC (.zip / folder)** in the launcher. The launcher shows when the game is ready and how many DLC packs were found.
 3. Press **Launch game**. On Adreno GPUs keep the driver on **Auto (recommended)** unless you know you need another one.
 

@@ -189,6 +189,9 @@ struct GuestTexture : GuestBaseTexture
     std::vector<std::unique_ptr<RenderTextureView>> framebufferViews;
     std::unique_ptr<GuestTexture> patchedTexture;
     struct GuestSurface* sourceSurface = nullptr;
+    // Second view of a 2D texture typed as a 2D array, for the Texture2DArray heap (see CreateArrayTextureView).
+    std::unique_ptr<RenderTextureView> arrayTextureView;
+    uint32_t arrayDescriptorIndex = 0;
 };
 
 struct GuestLockedRect

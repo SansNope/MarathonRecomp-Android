@@ -1,8 +1,18 @@
 diff --git a/plume_render_interface.h b/plume_render_interface.h
-index 2048557..b7819d5 100644
+index 2048557..990741b 100644
 --- a/plume_render_interface.h
 +++ b/plume_render_interface.h
-@@ -98,6 +98,14 @@ namespace plume {
+@@ -59,6 +59,9 @@ namespace plume {
+         virtual ~RenderPipeline() { }
+         virtual void setName(const std::string &name) = 0;
+         virtual RenderPipelineProgram getProgram(const std::string &name) const = 0;
++        // MarathonRecomp Android: false when the driver rejected the pipeline (e.g. a shader it cannot
++        // compile). Command lists skip draws and dispatches while such a pipeline is bound.
++        virtual bool isValid() const { return true; }
+     };
+ 
+     struct RenderPipelineLayout {
+@@ -98,6 +101,14 @@ namespace plume {
          virtual RenderTexture *getTexture(uint32_t textureIndex) = 0;
          virtual uint32_t getTextureCount() const = 0;
          virtual bool acquireTexture(RenderCommandSemaphore *signalSemaphore, uint32_t *textureIndex) = 0;
@@ -18,7 +28,7 @@ index 2048557..b7819d5 100644
          virtual bool isEmpty() const = 0;
  
 diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
-index ad63e0e..33fc1ee 100644
+index ad63e0e..8cfef96 100644
 --- a/plume_render_interface_types.h
 +++ b/plume_render_interface_types.h
 @@ -166,6 +166,14 @@ namespace plume {
@@ -36,7 +46,19 @@ index ad63e0e..33fc1ee 100644
          MAX
      };
  
-@@ -583,6 +591,9 @@ namespace plume {
+@@ -181,7 +189,10 @@ namespace plume {
+         TEXTURE_1D,
+         TEXTURE_2D,
+         TEXTURE_3D,
+-        TEXTURE_CUBE
++        TEXTURE_CUBE,
++        // MarathonRecomp Android (Vulkan only): a 2D array view even for a single layer, for shaders
++        // that declare the texture as arrayed. TEXTURE_2D picks an array view only for several layers.
++        TEXTURE_2D_ARRAY
+     };
+ 
+     enum class RenderCommandListType {
+@@ -583,6 +594,9 @@ namespace plume {
          case RenderFormat::BC4_UNORM:
          case RenderFormat::BC4_SNORM:
          case RenderFormat::BC4_TYPELESS:
@@ -46,7 +68,7 @@ index ad63e0e..33fc1ee 100644
              return 8;
          case RenderFormat::BC2_UNORM:
          case RenderFormat::BC2_UNORM_SRGB:
-@@ -596,6 +607,9 @@ namespace plume {
+@@ -596,6 +610,9 @@ namespace plume {
          case RenderFormat::BC6H_SF16:
          case RenderFormat::BC7_UNORM:
          case RenderFormat::BC7_UNORM_SRGB:
@@ -56,7 +78,7 @@ index ad63e0e..33fc1ee 100644
              return 16;
          default:
              assert(false && "Unknown format.");
-@@ -680,6 +694,12 @@ namespace plume {
+@@ -680,6 +697,12 @@ namespace plume {
          case RenderFormat::BC7_TYPELESS:
          case RenderFormat::BC7_UNORM:
          case RenderFormat::BC7_UNORM_SRGB:
@@ -69,7 +91,20 @@ index ad63e0e..33fc1ee 100644
              return 4;
          default:
              assert(false && "Unknown format.");
-@@ -1786,6 +1806,16 @@ namespace plume {
+@@ -1765,6 +1788,12 @@ namespace plume {
+         RenderDeviceVendor vendor = RenderDeviceVendor::UNKNOWN;
+         uint64_t driverVersion = 0;
+         uint64_t dedicatedVideoMemory = 0;
++
++        // MarathonRecomp Android diagnostics: API version reported by the device and the driver's
++        // own name and version string (Vulkan 1.2 driver properties; empty when unavailable).
++        uint32_t apiVersion = 0;
++        std::string driverName;
++        std::string driverInfo;
+     };
+ 
+     struct RenderDeviceCapabilities {
+@@ -1786,6 +1815,28 @@ namespace plume {
          bool descriptorIndexing = false;
          bool scalarBlockLayout = false;
  
@@ -77,6 +112,18 @@ index ad63e0e..33fc1ee 100644
 +        // clamp to these (some mobile drivers report small limits). 0 means unknown.
 +        uint32_t maxSampledImageDescriptors = 0;
 +        uint32_t maxSamplerDescriptors = 0;
++
++        // Number of descriptor sets a pipeline layout may use (Vulkan maxBoundDescriptorSets).
++        // Older Mali drivers report 4. 0 means unknown.
++        uint32_t maxBoundDescriptorSets = 0;
++
++        // Vertex input limits and shader features some mobile drivers lack (diagnostics and
++        // workarounds in the MarathonRecomp Android renderer). 0/false means unknown.
++        uint32_t maxVertexInputAttributes = 0;
++        uint32_t maxVertexInputBindings = 0;
++        bool shaderClipDistance = false;
++        bool fragmentStoresAndAtomics = false;
++        bool vertexPipelineStoresAndAtomics = false;
 +
 +        // Sampled texture compression. BC is universal on desktop but missing on most mobile
 +        // drivers (Mali/PowerVR), which expose ETC2/EAC instead.
@@ -87,10 +134,18 @@ index ad63e0e..33fc1ee 100644
          bool bufferDeviceAddress = false;
          
 diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
-index a09dd93..be7f4d2 100644
+index a09dd93..3424737 100644
 --- a/plume_vulkan.cpp
 +++ b/plume_vulkan.cpp
-@@ -249,6 +249,18 @@ namespace plume {
+@@ -13,6 +13,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <climits>
++#include <cstring>
+ #include <unordered_map>
+ 
+ #if DLSS_ENABLED
+@@ -249,6 +250,18 @@ namespace plume {
              return VK_FORMAT_BC7_UNORM_BLOCK;
          case RenderFormat::BC7_UNORM_SRGB:
              return VK_FORMAT_BC7_SRGB_BLOCK;
@@ -109,7 +164,16 @@ index a09dd93..be7f4d2 100644
          default:
              assert(false && "Unknown format.");
              return VK_FORMAT_UNDEFINED;
-@@ -568,8 +580,9 @@ namespace plume {
+@@ -279,6 +292,8 @@ namespace plume {
+             return VK_IMAGE_VIEW_TYPE_3D;
+         case RenderTextureViewDimension::TEXTURE_CUBE:
+             return arraySize > 6 ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
++        case RenderTextureViewDimension::TEXTURE_2D_ARRAY:
++            return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+         default:
+             assert(false && "Unknown resource dimension.");
+             return VK_IMAGE_VIEW_TYPE_MAX_ENUM;
+@@ -568,8 +583,9 @@ namespace plume {
          case RenderTextureAddressMode::BORDER:
              return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
          case RenderTextureAddressMode::MIRROR_ONCE:
@@ -121,7 +185,7 @@ index a09dd93..be7f4d2 100644
          default:
              assert(false && "Unknown texture address mode.");
              return VK_SAMPLER_ADDRESS_MODE_MAX_ENUM;
-@@ -930,7 +943,14 @@ namespace plume {
+@@ -930,7 +946,14 @@ namespace plume {
          info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
          info.pNext = nullptr;
          info.buffer = vk;
@@ -137,7 +201,7 @@ index a09dd93..be7f4d2 100644
      }
  
      // VulkanBufferFormattedView
-@@ -2303,6 +2323,19 @@ namespace plume {
+@@ -2303,6 +2326,19 @@ namespace plume {
              return false;
          }
  
@@ -157,7 +221,7 @@ index a09dd93..be7f4d2 100644
          return true;
      }
  
-@@ -2336,17 +2369,44 @@ namespace plume {
+@@ -2336,17 +2372,44 @@ namespace plume {
          width = std::clamp(width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
          height = std::clamp(height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
  
@@ -205,7 +269,7 @@ index a09dd93..be7f4d2 100644
          createInfo.compositeAlpha = pickedAlphaFlag;
          createInfo.presentMode = requiredPresentMode;
          createInfo.clipped = VK_TRUE;
-@@ -2393,8 +2453,8 @@ namespace plume {
+@@ -2393,8 +2456,8 @@ namespace plume {
              textures[i] = VulkanTexture(commandQueue->device, images[i]);
              textures[i].desc.dimension = RenderTextureDimension::TEXTURE_2D;
              textures[i].desc.format = desc.format;
@@ -216,7 +280,7 @@ index a09dd93..be7f4d2 100644
              textures[i].desc.depth = 1;
              textures[i].desc.mipLevels = 1;
              textures[i].desc.arraySize = 1;
-@@ -2409,6 +2469,12 @@ namespace plume {
+@@ -2409,6 +2472,12 @@ namespace plume {
      bool VulkanSwapChain::needsResize() const {
          uint32_t windowWidth, windowHeight;
          getWindowSize(windowWidth, windowHeight);
@@ -229,7 +293,7 @@ index a09dd93..be7f4d2 100644
          return (vk == VK_NULL_HANDLE) || (windowWidth != width) || (windowHeight != height) || (requiredPresentMode != createdPresentMode);
      }
  
-@@ -2444,6 +2510,75 @@ namespace plume {
+@@ -2444,6 +2513,75 @@ namespace plume {
          return desc.textureCount;
      }
  
@@ -305,7 +369,7 @@ index a09dd93..be7f4d2 100644
      RenderWindow VulkanSwapChain::getWindow() const {
          return desc.renderWindow;
      }
-@@ -2492,8 +2627,19 @@ namespace plume {
+@@ -2492,8 +2630,19 @@ namespace plume {
          assert(signalSemaphore != nullptr);
  
          VulkanCommandSemaphore *interfaceSemaphore = static_cast<VulkanCommandSemaphore *>(signalSemaphore);
@@ -326,7 +390,73 @@ index a09dd93..be7f4d2 100644
              return false;
          }
  
-@@ -3835,17 +3981,34 @@ namespace plume {
+@@ -2800,6 +2949,8 @@ namespace plume {
+ 
+     void VulkanCommandList::begin() {
+         vkResetCommandBuffer(vk, 0);
++        graphicsPipelineInvalid = false;
++        computePipelineInvalid = false;
+ 
+         VkCommandBufferBeginInfo beginInfo = {};
+         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+@@ -2894,6 +3045,10 @@ namespace plume {
+     void VulkanCommandList::dispatch(uint32_t threadGroupCountX, uint32_t threadGroupCountY, uint32_t threadGroupCountZ) {
+         assert(activeComputePipelineLayout != nullptr);
+ 
++        if (computePipelineInvalid) {
++            return;
++        }
++
+         vkCmdDispatch(vk, threadGroupCountX, threadGroupCountY, threadGroupCountZ);
+     }
+ 
+@@ -2935,6 +3090,10 @@ namespace plume {
+         assert(activeGraphicsPipelineLayout != nullptr);
+         checkActiveRenderPass();
+ 
++        if (graphicsPipelineInvalid) {
++            return;
++        }
++
+         vkCmdDraw(vk, vertexCountPerInstance, instanceCount, startVertexLocation, startInstanceLocation);
+     }
+     
+@@ -2942,6 +3101,10 @@ namespace plume {
+         assert(activeGraphicsPipelineLayout != nullptr);
+         checkActiveRenderPass();
+ 
++        if (graphicsPipelineInvalid) {
++            return;
++        }
++
+         vkCmdDrawIndexed(vk, indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, startInstanceLocation);
+     }
+ 
+@@ -2951,13 +3114,21 @@ namespace plume {
+         const VulkanPipeline *interfacePipeline = static_cast<const VulkanPipeline *>(pipeline);
+         switch (interfacePipeline->type) {
+         case VulkanPipeline::Type::Compute: {
++            // MarathonRecomp Android: binding VK_NULL_HANDLE is invalid and crashes some drivers (Mali).
++            // Keep the last valid pipeline bound and skip dispatches until a valid one is set.
+             const VulkanComputePipeline *computePipeline = static_cast<const VulkanComputePipeline *>(interfacePipeline);
+-            vkCmdBindPipeline(vk, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline->vk);
++            computePipelineInvalid = (computePipeline->vk == VK_NULL_HANDLE);
++            if (!computePipelineInvalid) {
++                vkCmdBindPipeline(vk, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline->vk);
++            }
+             break;
+         }
+         case VulkanPipeline::Type::Graphics: {
+             const VulkanGraphicsPipeline *graphicsPipeline = static_cast<const VulkanGraphicsPipeline *>(interfacePipeline);
+-            vkCmdBindPipeline(vk, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline->vk);
++            graphicsPipelineInvalid = (graphicsPipeline->vk == VK_NULL_HANDLE);
++            if (!graphicsPipelineInvalid) {
++                vkCmdBindPipeline(vk, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline->vk);
++            }
+             break;
+         }
+         case VulkanPipeline::Type::Raytracing: {
+@@ -3835,17 +4006,48 @@ namespace plume {
          // Store properties.
          vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
  
@@ -335,6 +465,20 @@ index a09dd93..be7f4d2 100644
 +        // requested at instance creation (appInfo.apiVersion).
 +        const uint32_t effectiveApiVersion = std::min(renderInterface->appInfo.apiVersion, physicalDeviceProperties.apiVersion);
 +        const bool coreVulkan12 = effectiveApiVersion >= VK_API_VERSION_1_2;
++
++        description.apiVersion = physicalDeviceProperties.apiVersion;
++        if (coreVulkan12) {
++            VkPhysicalDeviceDriverProperties driverProperties = {};
++            driverProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
++
++            VkPhysicalDeviceProperties2 deviceProperties2 = {};
++            deviceProperties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
++            deviceProperties2.pNext = &driverProperties;
++            vkGetPhysicalDeviceProperties2(physicalDevice, &deviceProperties2);
++
++            description.driverName = std::string(driverProperties.driverName, strnlen(driverProperties.driverName, VK_MAX_DRIVER_NAME_SIZE));
++            description.driverInfo = std::string(driverProperties.driverInfo, strnlen(driverProperties.driverInfo, VK_MAX_DRIVER_INFO_SIZE));
++        }
 +
 +        // MarathonRecomp Android: on Vulkan 1.2+ devices the promoted features (descriptor indexing,
 +        // scalar block layout, buffer device address, samplerMirrorClampToEdge) are queried and enabled
@@ -364,7 +508,7 @@ index a09dd93..be7f4d2 100644
          if (scalarBlockLayoutFound) {
              layoutFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES;
              layoutFeatures.pNext = featuresChain;
-@@ -3874,7 +4037,7 @@ namespace plume {
+@@ -3874,7 +4076,7 @@ namespace plume {
          }
  
          VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures = {};
@@ -373,7 +517,7 @@ index a09dd93..be7f4d2 100644
          if (bufferDeviceAddressFound) {
              bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
              bufferDeviceAddressFeatures.pNext = featuresChain;
-@@ -3938,14 +4101,26 @@ namespace plume {
+@@ -3938,14 +4140,26 @@ namespace plume {
              createDeviceChain = &accelerationStructureFeatures;
          }
  
@@ -404,7 +548,7 @@ index a09dd93..be7f4d2 100644
              layoutFeatures.pNext = createDeviceChain;
              createDeviceChain = &layoutFeatures;
          }
-@@ -3965,11 +4140,30 @@ namespace plume {
+@@ -3965,11 +4179,30 @@ namespace plume {
              createDeviceChain = &robustnessFeatures;
          }
  
@@ -437,7 +581,7 @@ index a09dd93..be7f4d2 100644
          
          if (portabilityFound) {
              portabilityFeatures.pNext = createDeviceChain;
-@@ -4061,6 +4255,11 @@ namespace plume {
+@@ -4061,6 +4294,11 @@ namespace plume {
              return;
          }
  
@@ -449,7 +593,7 @@ index a09dd93..be7f4d2 100644
          for (uint32_t i = 0; i < queueFamilyCount; i++) {
              for (uint32_t j = 0; j < queueFamilies[i].queues.size(); j++) {
                  vkGetDeviceQueue(vk, i, j, &queueFamilies[i].queues[j].vk);
-@@ -4094,7 +4293,9 @@ namespace plume {
+@@ -4094,7 +4332,9 @@ namespace plume {
          allocatorInfo.device = vk;
          allocatorInfo.pVulkanFunctions = &vmaFunctions;
          allocatorInfo.instance = renderInterface->instance;
@@ -460,7 +604,7 @@ index a09dd93..be7f4d2 100644
  
          res = vmaCreateAllocator(&allocatorInfo, &allocator);
          if (res != VK_SUCCESS) {
-@@ -4134,8 +4335,18 @@ namespace plume {
+@@ -4134,8 +4374,24 @@ namespace plume {
          capabilities.resolveModes = false;
          capabilities.descriptorIndexing = descriptorIndexingSupported;
          capabilities.scalarBlockLayout = scalarBlockLayoutSupported;
@@ -472,6 +616,12 @@ index a09dd93..be7f4d2 100644
 +            capabilities.maxSampledImageDescriptors = std::min(physicalDeviceProperties.limits.maxDescriptorSetSampledImages, physicalDeviceProperties.limits.maxPerStageDescriptorSampledImages);
 +            capabilities.maxSamplerDescriptors = std::min(physicalDeviceProperties.limits.maxDescriptorSetSamplers, physicalDeviceProperties.limits.maxPerStageDescriptorSamplers);
 +        }
++        capabilities.maxBoundDescriptorSets = physicalDeviceProperties.limits.maxBoundDescriptorSets;
++        capabilities.maxVertexInputAttributes = physicalDeviceProperties.limits.maxVertexInputAttributes;
++        capabilities.maxVertexInputBindings = physicalDeviceProperties.limits.maxVertexInputBindings;
++        capabilities.shaderClipDistance = deviceFeatures.features.shaderClipDistance;
++        capabilities.fragmentStoresAndAtomics = deviceFeatures.features.fragmentStoresAndAtomics;
++        capabilities.vertexPipelineStoresAndAtomics = deviceFeatures.features.vertexPipelineStoresAndAtomics;
 +        capabilities.textureCompressionBC = deviceFeatures.features.textureCompressionBC;
 +        capabilities.textureCompressionETC2 = deviceFeatures.features.textureCompressionETC2;
          capabilities.bufferDeviceAddress = bufferDeviceAddressSupported;
@@ -480,7 +630,7 @@ index a09dd93..be7f4d2 100644
          capabilities.presentWait = presentWaitSupported;
          capabilities.displayTiming = supportedOptionalExtensions.find(VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) != supportedOptionalExtensions.end();
          capabilities.maxTextureSize = physicalDeviceProperties.limits.maxImageDimension2D;
-@@ -4465,15 +4676,32 @@ namespace plume {
+@@ -4465,15 +4721,32 @@ namespace plume {
  
      // VulkanInterface
  
@@ -518,10 +668,26 @@ index a09dd93..be7f4d2 100644
  
          appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 diff --git a/plume_vulkan.h b/plume_vulkan.h
-index 1d36b12..4691d40 100644
+index 1d36b12..b802c45 100644
 --- a/plume_vulkan.h
 +++ b/plume_vulkan.h
-@@ -241,6 +241,11 @@ namespace plume {
+@@ -180,6 +180,7 @@ namespace plume {
+         ~VulkanComputePipeline() override;
+         void setName(const std::string &name) override;
+         RenderPipelineProgram getProgram(const std::string &name) const override;
++        bool isValid() const override { return vk != VK_NULL_HANDLE; }
+     };
+ 
+     struct VulkanGraphicsPipeline : VulkanPipeline {
+@@ -190,6 +191,7 @@ namespace plume {
+         ~VulkanGraphicsPipeline() override;
+         void setName(const std::string &name) override;
+         RenderPipelineProgram getProgram(const std::string &name) const override;
++        bool isValid() const override { return vk != VK_NULL_HANDLE; }
+         static VkRenderPass createRenderPass(VulkanDevice *device, const VkFormat *renderTargetFormat, uint32_t renderTargetCount, VkFormat depthTargetFormat, VkSampleCountFlagBits sampleCount);
+     };
+ 
+@@ -241,6 +243,11 @@ namespace plume {
          uint64_t currentPresentId = 0;
          bool immediatePresentModeSupported = false;
          bool mailboxPresentModeSupported = false;
@@ -533,7 +699,7 @@ index 1d36b12..4691d40 100644
  
          VulkanSwapChain(VulkanCommandQueue *commandQueue, const RenderSwapChainDesc &desc);
          ~VulkanSwapChain() override;
-@@ -255,6 +260,11 @@ namespace plume {
+@@ -255,6 +262,11 @@ namespace plume {
          RenderTexture *getTexture(uint32_t textureIndex) override;
          uint32_t getTextureCount() const override;
          bool acquireTexture(RenderCommandSemaphore *signalSemaphore, uint32_t *textureIndex) override;
@@ -545,3 +711,12 @@ index 1d36b12..4691d40 100644
          RenderWindow getWindow() const override;
          bool isEmpty() const override;
          uint32_t getRefreshRate() const override;
+@@ -302,6 +314,8 @@ namespace plume {
+         const VulkanPipelineLayout *activeGraphicsPipelineLayout = nullptr;
+         const VulkanPipelineLayout *activeRaytracingPipelineLayout = nullptr;
+         VkRenderPass activeRenderPass = VK_NULL_HANDLE;
++        bool graphicsPipelineInvalid = false;
++        bool computePipelineInvalid = false;
+ 
+         VulkanCommandList(VulkanCommandQueue *queue);
+         ~VulkanCommandList() override;

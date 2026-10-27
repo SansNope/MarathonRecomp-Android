@@ -3,7 +3,7 @@
 [Русская версия](STATUS.ru.md)
 
 > [!IMPORTANT]
-> **We do not promise that the port works on every device.** Everything below was checked on two phones by the developer and testers. Other phones, GPUs and Android versions may not start the game, may show graphics problems or may run slower.
+> **We do not promise that the port works on every device.** Everything below was checked by the developer and testers on a few phones. Other phones, GPUs and Android versions may not start the game, may show graphics problems or may run slower.
 
 ## Tested devices
 
@@ -26,6 +26,12 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Going to the background and back (Vulkan surface recreated).
 - Performance described by the tester as excellent; not measured.
 
+### Mali (testers, development builds of v0.1.6)
+
+- **Pixel 7 Pro — Google Tensor G2 (GS201), Mali-G710, Android 17:** starts and plays (Wave Ocean, about 16 minutes without errors). Strong slowdowns in the orca chase; the tester lowered the render scale to 65–75 % and the FPS cap to 40–50. Not measured.
+- **Helio G99, Mali-G57 MC2 — Samsung Galaxy Tab A9 (Android 15) and an OPPO phone (Android 16):** starts and plays; the graphics artifacts of the earlier test builds are gone. Strong slowdowns reported. Not measured.
+- On both GPUs the system Vulkan driver is used, textures are converted to ETC2, and `ClipDistance` is removed from the shaders (no `shaderClipDistance`); Mali-G57 also uses the compact descriptor layout (4 descriptor sets).
+
 ## What works
 
 - Building the APK from this repository with the scripts in `android/scripts` (Windows).
@@ -34,6 +40,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Landscape only, both landscape sides.
 - Crash report in `log.txt`.
 - v0.1.5 (Mali support ported from Unleashed, Vulkan 1.2 path) on the POCO F5: starts and plays normally.
+- The v0.1.6 Mali workarounds (compact descriptor layout, `ClipDistance` removal, ETC2 textures, 2D-array views) on the POCO F5 with all of them forced on by test markers: picture correct, no errors.
 - Updating to the signed v0.1.0 release APK: installed over an earlier debug build on a test phone, saves were kept and the game works. The certificate lineage update path is confirmed on a device.
 
 ## Known issues
@@ -44,12 +51,16 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - **Bluetooth controllers through SDL HIDAPI** — the app does not request `BLUETOOTH_CONNECT`; controllers handled by Android itself are expected to work but were not tested.
 - **The first run of each scene** may stutter while Vulkan pipelines are created.
 - **Adreno 610 (Snapdragon 680)** — broken 2D title/menu graphics reported with the default driver ([#2](https://github.com/SansNope/MarathonRecomp-Android/issues/2)); not investigated yet.
+- **Performance on Mali** — slow, especially in heavy scenes. We will work on it; since v0.1.6 `log.txt` contains `[perf]` timing lines by default, please attach it.
+- **Frame-rate cap below 60** may slow down scripted scenes such as the orca chase (suspected: parts of the game logic are tied to the frame; not confirmed). On weak devices prefer a 60 FPS cap with a lower render scale.
+- **On Mali, user clip planes are disabled** (`ClipDistance` is not supported there); no visible difference has been noticed yet.
+- **First loads on Mali are slower** — BC textures are converted to ETC2 on the CPU.
 - The debug APK is signed with each builder's own key (see [BUILDING.md](BUILDING.md#signing)).
 
 ## Not tested
 
 - Other Adreno generations (6xx, 7xx other than 725, 8xx other than 830).
-- **Mali GPUs — testers wanted.** Since v0.1.5 the port contains the experimental Mali support of UnleashedRecomp-Android (system Vulkan driver, BC textures converted to ETC2/EAC on load). First reports from two Helio G99 devices (Mali-G57 MC2): the game does not start yet — a crash in the Mali driver before the first frame on one, failed graphics pipeline creation followed by a crash on the other. This is being investigated. In UnleashedRecomp-Android, Valhall GPUs work (confirmed there: Mali-G57 MC2, G68 MP5, G77 MC9 and newer); Bifrost GPUs (G31, G51, G52, G71, G72, G76) are not supported. Please open an issue with your phone, GPU and `log.txt` either way.
+- Mali GPUs other than G57 MC2 and G710 (see above). Bifrost GPUs (G31, G51, G52, G71, G72, G76) are not supported.
 - Xclipse (Samsung) and PowerVR GPUs (the system Vulkan driver is used there; the same texture fallback applies).
 - Android 10–15.
 - DLC, a full playthrough, all characters and stages.

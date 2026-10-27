@@ -32,6 +32,8 @@ MarathonRecomp во время сборки превращает исполня�
 - **Только альбомная ориентация** — SDL заменял `sensorLandscape` из манифеста на «любую ориентацию» для окна с изменяемым размером; `SDL_HINT_ORIENTATIONS = "LandscapeLeft LandscapeRight"` это исправляет.
 - **GPU без текстур BC (Mali, PowerVR; v0.1.5, перенесено из UnleashedRecomp-Android 1.5.0)** — текстуры игры сжаты в BC (DXT), а стоковые драйверы Mali/PowerVR их не читают. Если устройство не поддерживает BC, `LoadTexture` при загрузке распаковывает блоки через [bcdec](https://github.com/iOrange/bcdec) и перекодирует в ETC2/EAC через [etcpak](https://github.com/wolfpld/etcpak) (тот же объём памяти, кроме прозрачных BC1); без ETC2 текстуры распаковываются в RGBA. BC-текстуры, которые игра создаёт сама, создаются как RGBA8. Наборы дескрипторов текстур и сэмплеров ограничиваются лимитами устройства. `bc_fallback.enabled` включает этот путь на Adreno для проверки (со словом `decode` внутри — RGBA вместо ETC2). **На устройстве с Mali ещё не проверено.**
 - **Путь Vulkan 1.2 в Plume (v0.1.5)** — на драйверах 1.2+ descriptor indexing, scalar block layout, buffer device address и mirror clamp включаются через `VkPhysicalDeviceVulkan12Features`: драйверы вроде стокового Mali не обязаны перечислять старые имена расширений. `MIRROR_ONCE` заменяется на `MIRRORED_REPEAT`, если не поддерживается, функции устройства загружаются через `volkLoadDevice`, а GPU без scalar block layout или buffer device address теперь завершает запуск с понятным сообщением в `log.txt`. Turnip (Adreno) тоже идёт этим путём; проверено на Adreno 725.
+- **Исправления для Mali (v0.1.6, найдены с тестировщиками на Mali-G57 MC2 и G710)** — (1) в раскладке конвейеров Марафона 5 наборов дескрипторов (3 вида набора текстур, сэмплеры, буфер conditional survey в `space4`); драйверы с `maxBoundDescriptorSets = 4` падают или отвергают конвейеры, использующие set 4. При меньше чем 5 наборах буфер становится binding 0 набора сэмплеров (сэмплеры — binding 1), а SPIR-V всех шейдеров перепривязывается при загрузке (`RemapSpirvForCompactDescriptorSets`). (2) Все вершинные шейдеры пишут `SV_ClipDistance` (пользовательские плоскости отсечения Xbox); без `shaderClipDistance` этот выход превращается в обычный неиспользуемый, а capability убирается (`StripSpirvClipDistance`), поэтому плоскости отсечения выключены. (3) Выборки Xenos «3D» перекомпилированы как `Texture2DArray`, а игра кладёт туда обычные 2D-текстуры; теперь у каждой 2D-текстуры есть второй вид «массив 2D» для этой ячейки (Vulkan требует совпадения типов; Turnip прощал несовпадение). (4) Запасной механизм (сейчас не срабатывает): если GPU сообщает меньше 20 вершинных атрибутов, номера входов (у Марафона 0–19) уплотняются. Перепривязки SPIR-V проверены офлайн через `spirv-val` на всех шейдерах игры.
+- **Диагностика (v0.1.6)** — в `log.txt` пишутся GPU, драйвер, версия Vulkan, лимиты (`GPU limits:`) и возможности, шаги инициализации (`Init: …`), каждый отвергнутый драйвером конвейер (шейдеры, форматы, входы) и строки logcat приложения после первой ошибки. Отвергнутые конвейеры не биндятся (их отрисовка пропускается, а не роняет драйвер). В отчёте о сбое — имя потока, стек вызовов по frame pointers и конвейер, компилировавшийся в этот момент.
 
 ## 4. Драйверы Vulkan (`os/android/vulkan_driver_android.cpp`, `android/turnip-drivers`)
 
@@ -68,12 +70,15 @@ MarathonRecomp во время сборки превращает исполня�
 
 | Файл | Действие |
 |---|---|
-| `perf_capture.enabled` | строка замеров `[perf]` в `log.txt` раз в 2 секунды |
+| `perf_capture.enabled` | строка замеров `[perf]` в `log.txt` раз в 2 секунды; с v0.1.6 создаётся при первом запуске (удалите, чтобы выключить, — повторно не создаётся) |
 | `log_utility.enabled` | служебные строки лога (загрузки файлов, заглушки) |
 | `prerotation.disabled` | swapchain без pre-rotation |
 | `thread_affinity.disabled` | без закрепления рабочих потоков |
 | `thread_affinity.enabled` | переопределения `cpus=4-7`, `workers=…` |
 | `thread_uclamp.enabled` | uclamp для потоков (прошивки часто запрещают) |
 | `bc_fallback.enabled` | проверка перекодирования BC→ETC2 на GPU с поддержкой BC (`decode` внутри — BC→RGBA) |
+| `descriptor_sets_compact.enabled` | включить раскладку из 4 наборов (обход для Mali) на других GPU |
+| `clip_distance_strip.enabled` | включить удаление `ClipDistance` (обход для Mali) на других GPU |
+| `vertex_locations_compact.enabled` | включить уплотнение номеров вершинных входов на других GPU |
 
 Папка игры — `Android/data/io.github.sansnope.marathonrecomp.android/files/MarathonRecomp`, если в лаунчере не выбрано другое хранилище.

@@ -5,7 +5,9 @@
 #include <android/log.h>
 
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <signal.h>
+#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/system_properties.h>
@@ -143,6 +145,21 @@ static void* StderrToLogcatThread(void*)
 
 static struct sigaction s_previousCrashActions[NSIG];
 
+// Non-blocking pipe created with the handler. Writing from an address into it copies the memory
+// in the kernel, which fails with EFAULT instead of faulting, so the handler can walk frame
+// records of a corrupted or foreign stack safely.
+static int s_crashProbePipe[2] = { -1, -1 };
+
+// Per-thread descriptions set with os::android::SetCrashContext. Fixed slots so the signal
+// handler can read them without locks or allocation; a torn text is acceptable for diagnostics.
+struct CrashContextSlot
+{
+    std::atomic<int> tid{ 0 };
+    char text[512]{};
+};
+
+static CrashContextSlot s_crashContexts[16];
+
 static void CrashWriteRaw(int fd, const char* str)
 {
     size_t len = strlen(str);
@@ -204,6 +221,119 @@ static void CrashWriteAddress(int fd, const char* label, uint64_t address)
     }
 }
 
+static bool CrashReadPair(uint64_t address, uint64_t out[2])
+{
+    if (s_crashProbePipe[1] < 0 || address == 0 || (address & 0x7) != 0)
+        return false;
+
+    const ssize_t written = write(s_crashProbePipe[1], reinterpret_cast<const void*>(address), 2 * sizeof(uint64_t));
+    if (written <= 0)
+        return false;
+
+    const ssize_t readBack = read(s_crashProbePipe[0], out, size_t(written));
+    return written == ssize_t(2 * sizeof(uint64_t)) && readBack == written;
+}
+
+static void CrashWriteThreadName(int fd)
+{
+    char path[64] = "/proc/self/task/";
+    char tidText[21];
+    char* p = tidText + sizeof(tidText);
+    *--p = '\0';
+    uint64_t tid = uint64_t(GetTid());
+    do
+    {
+        *--p = char('0' + tid % 10);
+        tid /= 10;
+    } while (tid != 0);
+    strlcat(path, p, sizeof(path));
+    strlcat(path, "/comm", sizeof(path));
+
+    const int commFd = open(path, O_RDONLY | O_CLOEXEC);
+    if (commFd < 0)
+        return;
+
+    char name[32]{};
+    const ssize_t length = read(commFd, name, sizeof(name) - 1);
+    close(commFd);
+    if (length <= 0)
+        return;
+
+    for (ssize_t i = 0; i < length; i++)
+    {
+        if (name[i] == '\n')
+            name[i] = '\0';
+    }
+
+    CrashWriteRaw(fd, " thread=\"");
+    CrashWriteRaw(fd, name);
+    CrashWriteRaw(fd, "\"");
+}
+
+#if defined(__aarch64__)
+// Return addresses may carry pointer-authentication or tag bits above the 48-bit address space.
+static constexpr uint64_t CRASH_ADDRESS_MASK = 0x0000FFFFFFFFFFFFull;
+
+static void CrashWriteFrame(int fd, uint32_t index, uint64_t address)
+{
+    CrashWriteRaw(fd, "[crash] #");
+    if (index < 10)
+        CrashWriteRaw(fd, "0");
+    CrashWriteDec(fd, index);
+    CrashWriteAddress(fd, " ", address & CRASH_ADDRESS_MASK);
+    CrashWriteRaw(fd, "\n");
+}
+
+// Walks the AArch64 frame records (x29 -> {previous x29, return address}). Android code keeps
+// frame pointers on arm64; the walk stops at the first record it cannot read or that does not
+// move up the stack.
+static void CrashWriteBacktrace(int fd, const ucontext_t* context)
+{
+    CrashWriteRaw(fd, "[crash] backtrace (frame pointers, #00 = pc, #01 = lr):\n");
+    CrashWriteFrame(fd, 0, context->uc_mcontext.pc);
+    CrashWriteFrame(fd, 1, context->uc_mcontext.regs[30]);
+
+    uint64_t framePointer = context->uc_mcontext.regs[29];
+    for (uint32_t index = 2; index < 48; index++)
+    {
+        uint64_t record[2];
+        if (!CrashReadPair(framePointer, record))
+            break;
+
+        const uint64_t returnAddress = record[1] & CRASH_ADDRESS_MASK;
+        if (returnAddress == 0)
+            break;
+
+        CrashWriteFrame(fd, index, returnAddress);
+
+        if (record[0] <= framePointer)
+            break;
+
+        framePointer = record[0];
+    }
+}
+#endif
+
+static void CrashWriteContexts(int fd)
+{
+    const int tid = GetTid();
+    for (auto& slot : s_crashContexts)
+    {
+        const int slotTid = slot.tid.load(std::memory_order_acquire);
+        if (slotTid == 0 || slot.text[0] == '\0')
+            continue;
+
+        CrashWriteRaw(fd, slotTid == tid ? "[crash] context (this thread): " : "[crash] context tid=");
+        if (slotTid != tid)
+        {
+            CrashWriteDec(fd, uint64_t(slotTid));
+            CrashWriteRaw(fd, ": ");
+        }
+        CrashWriteRaw(fd, slot.text);
+        CrashWriteRaw(fd, "\n");
+    }
+}
+
 static void CrashSignalHandler(int signal, siginfo_t* info, void* contextPtr)
 {
     const int fd = s_logRawFd.load(std::memory_order_acquire);
@@ -227,6 +357,7 @@ static void CrashSignalHandler(int signal, siginfo_t* info, void* contextPtr)
         CrashWriteDec(fd, uint64_t(info != nullptr ? info->si_code : 0));
         CrashWriteRaw(fd, " tid=");
         CrashWriteDec(fd, uint64_t(GetTid()));
+        CrashWriteThreadName(fd);
         if (info != nullptr && (signal == SIGSEGV || signal == SIGBUS))
         {
             CrashWriteRaw(fd, " fault_addr=");
@@ -244,9 +375,11 @@ static void CrashSignalHandler(int signal, siginfo_t* info, void* contextPtr)
             CrashWriteRaw(fd, " sp=");
             CrashWriteHex(fd, context->uc_mcontext.sp);
             CrashWriteRaw(fd, "\n");
+            CrashWriteBacktrace(fd, context);
         }
 #endif
 
+        CrashWriteContexts(fd);
         CrashWriteRaw(fd, "[crash] end of report; the system tombstone (if any) has the full backtrace.\n");
     }
 
@@ -296,6 +429,46 @@ struct CrashAltStack
 
 static thread_local CrashAltStack s_crashAltStack;
 
+void os::android::SetCrashContext(const char* text)
+{
+    const int tid = GetTid();
+    CrashContextSlot* own = nullptr;
+    for (auto& slot : s_crashContexts)
+    {
+        if (slot.tid.load(std::memory_order_relaxed) == tid)
+        {
+            own = &slot;
+            break;
+        }
+    }
+
+    if (text == nullptr)
+    {
+        if (own != nullptr)
+        {
+            own->text[0] = '\0';
+            own->tid.store(0, std::memory_order_release);
+        }
+        return;
+    }
+
+    if (own == nullptr)
+    {
+        for (auto& slot : s_crashContexts)
+        {
+            int expected = 0;
+            if (slot.tid.compare_exchange_strong(expected, tid, std::memory_order_acq_rel))
+            {
+                own = &slot;
+                break;
+            }
+        }
+    }
+
+    if (own != nullptr)
+        strlcpy(own->text, text, sizeof(own->text));
+}
+
 void os::android::InstallCrashAltStackForCurrentThread()
 {
     s_crashAltStack.Install();
@@ -304,6 +477,12 @@ void os::android::InstallCrashAltStackForCurrentThread()
 static void InstallCrashHandler()
 {
     os::android::InstallCrashAltStackForCurrentThread();
+
+    if (pipe2(s_crashProbePipe, O_CLOEXEC | O_NONBLOCK) != 0)
+    {
+        s_crashProbePipe[0] = -1;
+        s_crashProbePipe[1] = -1;
+    }
 
     struct sigaction action{};
     action.sa_sigaction = CrashSignalHandler;

@@ -32,6 +32,8 @@ MarathonRecomp turns the Xbox 360 executable and shaders into C++ and shader cod
 - **Landscape only** — SDL replaced the manifest's `sensorLandscape` with "any orientation" for the resizable window; `SDL_HINT_ORIENTATIONS = "LandscapeLeft LandscapeRight"` fixes that.
 - **GPUs without BC textures (Mali, PowerVR; v0.1.5, ported from UnleashedRecomp-Android 1.5.0)** — the game's textures are BC (DXT) compressed, which stock Mali/PowerVR drivers cannot sample. When the device reports no BC support, `LoadTexture` decodes the blocks with [bcdec](https://github.com/iOrange/bcdec) and re-encodes them as ETC2/EAC with [etcpak](https://github.com/wolfpld/etcpak) at load time (same memory size, except transparent BC1); without ETC2 the textures are decoded to RGBA. BC textures the game creates itself are created as RGBA8. The texture/sampler descriptor sets are clamped to the device limits. `bc_fallback.enabled` forces this path on Adreno for testing (with the word `decode` inside: RGBA instead of ETC2). **Not tested on a Mali device yet.**
 - **Vulkan 1.2 feature path in Plume (v0.1.5)** — on 1.2+ drivers descriptor indexing, scalar block layout, buffer device address and mirror-clamp sampling are enabled through `VkPhysicalDeviceVulkan12Features`, because drivers such as stock Mali do not have to list the old extension names. `MIRROR_ONCE` falls back to `MIRRORED_REPEAT` when unsupported, device functions are loaded with `volkLoadDevice`, and a GPU without scalar block layout or buffer device address now fails with a clear message in `log.txt`. Turnip (Adreno) also takes this path; checked on Adreno 725.
+- **Mali fixes (v0.1.6, found with testers on Mali-G57 MC2 and G710)** — (1) Marathon's pipeline layout has 5 descriptor sets (3 views of the texture set, samplers, the conditional-survey buffer at `space4`); drivers with `maxBoundDescriptorSets = 4` crash or reject pipelines that use set 4. With fewer than 5 sets the survey buffer becomes binding 0 of the sampler set (samplers move to binding 1) and the SPIR-V of every shader is remapped when it loads (`RemapSpirvForCompactDescriptorSets`). (2) Every vertex shader writes `SV_ClipDistance` (Xbox user clip planes); without `shaderClipDistance` the ClipDistance output is turned into an unused ordinary output and the capability is dropped (`StripSpirvClipDistance`), so user clip planes are disabled. (3) Xenos 3D fetches are recompiled as `Texture2DArray`, and the game binds ordinary 2D textures there; each 2D texture now has a second 2D-array view for that heap (Vulkan requires matching view types; Turnip tolerated the mismatch). (4) Dormant safety net: if a GPU reports fewer than 20 vertex attributes, vertex input locations (Marathon uses 0–19) are renumbered densely. The SPIR-V rewrites were checked offline with `spirv-val` on all game shaders.
+- **Diagnostics (v0.1.6)** — `log.txt` lists the GPU, driver, Vulkan version, limits (`GPU limits:`) and features, the initialization steps (`Init: …`), every pipeline the driver rejects (shaders, formats, inputs) and the app's own logcat lines after the first failure. Rejected pipelines are not bound (their draws are skipped instead of crashing the driver). Crash reports contain the crashing thread, a frame-pointer call stack and the pipeline being compiled at that moment.
 
 ## 4. Vulkan drivers (`os/android/vulkan_driver_android.cpp`, `android/turnip-drivers`)
 
@@ -68,12 +70,15 @@ Measured on a POCO F5 (SM7475) in the HUB, with `perf_capture.enabled` and Perfe
 
 | File | Effect |
 |---|---|
-| `perf_capture.enabled` | `[perf]` timing line in `log.txt` every 2 seconds |
+| `perf_capture.enabled` | `[perf]` timing line in `log.txt` every 2 seconds; created on the first launch since v0.1.6 (delete it to turn it off, it is not created again) |
 | `log_utility.enabled` | Utility log lines (file loads, stub calls) |
 | `prerotation.disabled` | swap chain without pre-rotation |
 | `thread_affinity.disabled` | no worker affinity |
 | `thread_affinity.enabled` | `cpus=4-7`, `workers=…` overrides |
 | `thread_uclamp.enabled` | per-thread uclamp (often rejected by firmware) |
 | `bc_fallback.enabled` | test the BC→ETC2 texture fallback on a GPU with BC support (`decode` inside: BC→RGBA) |
+| `descriptor_sets_compact.enabled` | force the 4-set descriptor layout (Mali workaround) on other GPUs |
+| `clip_distance_strip.enabled` | force the `ClipDistance` removal (Mali workaround) on other GPUs |
+| `vertex_locations_compact.enabled` | force dense vertex input locations on other GPUs |
 
 The game folder is `Android/data/io.github.sansnope.marathonrecomp.android/files/MarathonRecomp` unless another storage was chosen in the launcher.

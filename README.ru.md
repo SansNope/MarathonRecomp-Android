@@ -17,7 +17,7 @@
 | POCO F5 | Snapdragon 7+ Gen 2 (SM7475) / Adreno 725 | 17 | Меню, HUB с событиями, босс, Wave Ocean (пройден), Dusty Desert. Звук, сенсорное управление и сохранения работают. **60 FPS** в HUB и на уровнях при разрешении рендера 60 %; короткие просадки во время загрузки сцен. |
 | realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB с событиями и уровень при разрешении рендера **125 %**, без ошибок; производительность по оценке тестировщика отличная (не замерялась). |
 
-**GPU Mali: экспериментальная поддержка с v0.1.5, ещё не проверена ни на одном устройстве — нужны тестировщики** (см. [STATUS](docs/android/STATUS.ru.md)).
+**GPU Mali: с v0.1.6 игра запускается и играется** на Mali-G57 MC2 (Helio G99) и Mali-G710 (Pixel 7 Pro), но производительность на Mali пока плохая — работаем над этим (см. [STATUS](docs/android/STATUS.ru.md)).
 
 Не проверено: другие поколения Adreno, GPU Mali, Xclipse и PowerVR, Android 10–15, DLC, полное прохождение, физические геймпады, долгая игра от батареи. Подробности и известные проблемы: [docs/android/STATUS.ru.md](docs/android/STATUS.ru.md).
 
@@ -35,7 +35,7 @@
 
 ## Как играть
 
-1. Скачайте APK из [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest) или [соберите самостоятельно](docs/android/BUILDING.ru.md) и установите его. Описание релизов: [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
+1. Скачайте APK из [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest) или [соберите самостоятельно](docs/android/BUILDING.ru.md) и установите его. Описание релизов: [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Скопируйте папку игры из своей копии для Xbox 360 на телефон и выберите в лаунчере **«Файлы игры» → «Установить игру / DLC (.zip / папка)»**. Лаунчер покажет, что игра готова, и сколько DLC найдено.
 3. Нажмите **«Запустить игру»**. На Adreno оставьте драйвер **«Авто (рекомендуется)»**, если не знаете точно, что нужен другой.
 

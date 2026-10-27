@@ -43,6 +43,7 @@
 #include <bcdec.h>
 #include <ProcessRGB.hpp>
 #include <os/android/vulkan_driver_android.h>
+#include <os/android/logger_android.h>
 #include <os/android/storage_android.h>
 #include <os/android/frame_diagnostics.h>
 #include <ui/touch_controls.h>
@@ -53,6 +54,8 @@
 
 #if defined(ASYNC_PSO_DEBUG) || defined(PSO_CACHING)
 #include <user/paths.h>
+#include <magic_enum/magic_enum.hpp>
+#elif defined(__ANDROID__)
 #include <magic_enum/magic_enum.hpp>
 #endif
 
@@ -179,6 +182,12 @@ struct PipelineState
     uint32_t specConstants = 0;
 };
 #pragma pack(pop)
+
+// Logs a built-in pipeline the driver rejected (Android diagnostics; no-op elsewhere).
+static void CheckBuiltInPipeline(const RenderPipeline* pipeline, const char* name);
+
+// Drops the vertex input renumbering of a destroyed shader (see g_compactVertexLocations).
+static void ForgetVertexLocationRemap(const RenderShader* shader);
 
 struct UploadAllocation
 {
@@ -318,9 +327,10 @@ static Profiler g_presentWaitProfiler;
 static Profiler g_swapChainAcquireProfiler;
 
 #ifdef __ANDROID__
-// Opt-in diagnostics. No settings, GPU work, affinity or pacing are changed.
-// Create <game root>/perf_capture.enabled before launching to collect a summary
-// every two seconds in log.txt. A restart without the marker disables it.
+// Diagnostics. No settings, GPU work, affinity or pacing are changed.
+// <game root>/perf_capture.enabled writes a summary every two seconds to log.txt. The first
+// launch creates the marker (remembered by .perf_capture_default) so testers' logs contain
+// timings by default; deleting it disables the summary and it is not created again.
 struct AndroidFrameDiagnostics
 {
     using Clock = std::chrono::steady_clock;
@@ -352,7 +362,15 @@ struct AndroidFrameDiagnostics
         static const bool requested = []
         {
             std::error_code error;
-            return std::filesystem::exists(os::android::GetDataRoot() / "perf_capture.enabled", error);
+            const std::filesystem::path& root = os::android::GetDataRoot();
+            if (!std::filesystem::exists(root / ".perf_capture_default", error))
+            {
+                if (!std::filesystem::exists(root / "perf_capture.enabled", error))
+                    std::ofstream(root / "perf_capture.enabled").close();
+                std::ofstream(root / ".perf_capture_default").close();
+            }
+
+            return std::filesystem::exists(root / "perf_capture.enabled", error);
         }();
         enabled = requested;
         if (!enabled)
@@ -559,6 +577,36 @@ static std::unique_ptr<RenderTexture> g_blankTextures[TEXTURE_DESCRIPTOR_NULL_CO
 static std::unique_ptr<RenderTextureView> g_blankTextureViews[TEXTURE_DESCRIPTOR_NULL_COUNT];
 
 static TextureDescriptorAllocator g_textureDescriptorAllocator;
+
+// Marathon's shaders read Xenos "3D" texture fetches through the Texture2DArray heap (set 1), and
+// the game binds ordinary 2D textures there. Reading a 2D view through an arrayed image type is
+// invalid in Vulkan: Turnip tolerates it, Mali returns nothing (untextured world). Every 2D texture
+// therefore gets a second view typed as a 2D array, with its own descriptor for that heap.
+static void CreateArrayTextureView(GuestTexture& texture, RenderTextureViewDesc viewDesc)
+{
+#ifdef __ANDROID__
+    if (texture.texture == nullptr || texture.viewDimension != RenderTextureViewDimension::TEXTURE_2D)
+        return;
+
+    viewDesc.dimension = RenderTextureViewDimension::TEXTURE_2D_ARRAY;
+    texture.arrayTextureView = texture.texture->createTextureView(viewDesc);
+    texture.arrayDescriptorIndex = g_textureDescriptorAllocator.allocate();
+    g_textureDescriptorSet->setTexture(texture.arrayDescriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ, texture.arrayTextureView.get());
+#else
+    (void)texture;
+    (void)viewDesc;
+#endif
+}
+
+static void FreeArrayTextureView(GuestTexture& texture)
+{
+    if (texture.arrayDescriptorIndex != NULL)
+    {
+        g_textureDescriptorSet->setTexture(texture.arrayDescriptorIndex, nullptr, {});
+        g_textureDescriptorAllocator.free(texture.arrayDescriptorIndex);
+        texture.arrayDescriptorIndex = NULL;
+    }
+}
 
 static std::unique_ptr<RenderPipelineLayout> g_pipelineLayout;
 static xxHashMap<std::unique_ptr<RenderPipeline>> g_pipelines;
@@ -950,11 +998,13 @@ static void DestructTempResources()
 
             g_textureDescriptorSet->setTexture(texture->descriptorIndex, nullptr, {});
             g_textureDescriptorAllocator.free(texture->descriptorIndex);
+            FreeArrayTextureView(*texture);
 
             if (texture->patchedTexture != nullptr)
             {
                 g_textureDescriptorSet->setTexture(texture->patchedTexture->descriptorIndex, nullptr, {});
                 g_textureDescriptorAllocator.free(texture->patchedTexture->descriptorIndex);
+                FreeArrayTextureView(*texture->patchedTexture);
             }
 
             texture->~GuestTexture();
@@ -1018,6 +1068,7 @@ static void DestructTempResources()
         case ResourceType::VertexShader:
         case ResourceType::PixelShader:
         {
+            ForgetVertexLocationRemap(reinterpret_cast<GuestShader*>(resource)->shader.get());
             reinterpret_cast<GuestShader*>(resource)->~GuestShader();
             break;
         }
@@ -1735,7 +1786,7 @@ static std::unique_ptr<GuestShader> g_conditionalSurveyPSShader;
 #else
 
 #define CREATE_SHADER(NAME) \
-    g_device->createShader(g_##NAME##_spirv, sizeof(g_##NAME##_spirv), "shaderMain", RenderShaderFormat::SPIRV)
+    CreateSpirvShader(g_##NAME##_spirv, sizeof(g_##NAME##_spirv))
 
 #endif
 
@@ -1754,6 +1805,297 @@ static constexpr size_t SAMPLER_DESCRIPTOR_SIZE = 1024;
 // recent Mali report more than the defaults, some mobile drivers less.
 static uint32_t g_textureDescriptorSize = TEXTURE_DESCRIPTOR_SIZE;
 static uint32_t g_samplerDescriptorSize = SAMPLER_DESCRIPTOR_SIZE;
+
+// The pipeline layout uses 5 descriptor sets: textures (3 views of one set), samplers and the
+// conditional survey buffer (space4). Drivers limited to 4 sets (older Mali) crash in
+// vkCreatePipelineLayout or reject every pipeline that touches set 4. The compact layout moves
+// the survey buffer into the sampler set (binding 0, samplers at binding 1); shaders are
+// remapped to it when their SPIR-V is loaded (RemapSpirvForCompactDescriptorSets).
+static bool g_compactDescriptorSets = false;
+
+// Flat Plume descriptor index of shader sampler 0 in g_samplerDescriptorSet.
+static uint32_t g_samplerSlotOffset = 0;
+
+// Vertex inputs use locations 0-19 (see the location table in CreateVertexDeclaration), while
+// Vulkan requires location < maxVertexInputAttributes, which is 16 on Mali. No shader reads more
+// than 16 inputs, so with this flag every vertex shader's input locations are renumbered densely
+// when its SPIR-V is loaded, and pipelines translate the declaration's locations the same way.
+static bool g_compactVertexLocations = false;
+
+// Every vertex shader writes SV_ClipDistance (Xbox user clip planes). Drivers without
+// shaderClipDistance (Mali-G710 r54p3) crash compiling them. With this flag the ClipDistance
+// output becomes an ordinary unused output when the SPIR-V is loaded; clip planes are lost.
+static bool g_stripClipDistance = false;
+static std::mutex g_vertexLocationRemapMutex;
+static ankerl::unordered_dense::map<const RenderShader*, std::array<uint8_t, 32>> g_vertexLocationRemaps;
+
+static void BuildSamplerDescriptorSet(RenderDescriptorSetBuilder& builder)
+{
+    builder.begin();
+    if (g_compactDescriptorSets)
+    {
+        builder.addReadWriteStructuredBuffer(0);
+        builder.addSampler(1, g_samplerDescriptorSize);
+    }
+    else
+    {
+        builder.addSampler(0, g_samplerDescriptorSize);
+    }
+    builder.end(true, g_samplerDescriptorSize);
+}
+
+// Rewrites the descriptor decorations of a SPIR-V module for the compact layout: sampler arrays
+// move from binding 0 to binding 1 of their set, and the survey buffer moves from set 4 to the
+// sampler set (set 3, binding 0). Returns the number of changed decorations.
+static uint32_t RemapSpirvForCompactDescriptorSets(uint32_t* words, size_t wordCount)
+{
+    constexpr uint32_t OP_TYPE_SAMPLER = 26;
+    constexpr uint32_t OP_TYPE_ARRAY = 28;
+    constexpr uint32_t OP_TYPE_RUNTIME_ARRAY = 29;
+    constexpr uint32_t OP_TYPE_POINTER = 32;
+    constexpr uint32_t OP_VARIABLE = 59;
+    constexpr uint32_t OP_DECORATE = 71;
+    constexpr uint32_t DECORATION_BINDING = 33;
+    constexpr uint32_t DECORATION_DESCRIPTOR_SET = 34;
+
+    if (wordCount < 5 || words[0] != 0x07230203)
+        return 0;
+
+    const uint32_t bound = words[3];
+    std::vector<uint8_t> isSampler(bound, 0);
+    std::vector<uint32_t> arrayElement(bound, 0);
+    std::vector<uint32_t> pointee(bound, 0);
+    std::vector<uint32_t> variableType(bound, 0);
+    std::vector<uint32_t*> setWord(bound, nullptr);
+    std::vector<uint32_t*> bindingWord(bound, nullptr);
+
+    for (size_t i = 5; i < wordCount;)
+    {
+        const uint32_t length = words[i] >> 16;
+        const uint32_t opcode = words[i] & 0xFFFF;
+        if (length == 0 || i + length > wordCount)
+            return 0;
+
+        const uint32_t* op = words + i;
+        auto valid = [&](uint32_t id) { return id < bound; };
+
+        if (opcode == OP_TYPE_SAMPLER && length >= 2 && valid(op[1]))
+            isSampler[op[1]] = 1;
+        else if ((opcode == OP_TYPE_ARRAY || opcode == OP_TYPE_RUNTIME_ARRAY) && length >= 3 && valid(op[1]))
+            arrayElement[op[1]] = op[2];
+        else if (opcode == OP_TYPE_POINTER && length >= 4 && valid(op[1]))
+            pointee[op[1]] = op[3];
+        else if (opcode == OP_VARIABLE && length >= 4 && valid(op[2]))
+            variableType[op[2]] = op[1];
+        else if (opcode == OP_DECORATE && length >= 4 && valid(op[1]))
+        {
+            if (op[2] == DECORATION_DESCRIPTOR_SET)
+                setWord[op[1]] = words + i + 3;
+            else if (op[2] == DECORATION_BINDING)
+                bindingWord[op[1]] = words + i + 3;
+        }
+
+        i += length;
+    }
+
+    uint32_t changes = 0;
+    for (uint32_t id = 0; id < bound; id++)
+    {
+        if (setWord[id] == nullptr || bindingWord[id] == nullptr)
+            continue;
+
+        uint32_t type = variableType[id] < bound ? pointee[variableType[id]] : 0;
+        if (type < bound && arrayElement[type] != 0)
+            type = arrayElement[type];
+
+        const bool samplerVariable = type < bound && isSampler[type];
+        if (samplerVariable && *bindingWord[id] == 0)
+        {
+            *bindingWord[id] = 1;
+            ++changes;
+        }
+        else if (!samplerVariable && *setWord[id] == 4 && *bindingWord[id] == 0)
+        {
+            *setWord[id] = 3;
+            ++changes;
+        }
+    }
+
+    return changes;
+}
+
+// Renumbers the Location decorations of a vertex shader's input variables densely (in ascending
+// order) and returns the old-to-new table (0xFF = not an input). False for other stages, or when
+// the shader reads more inputs than fit.
+static bool CompactVertexInputLocations(uint32_t* words, size_t wordCount, std::array<uint8_t, 32>& remap)
+{
+    constexpr uint32_t OP_ENTRY_POINT = 15;
+    constexpr uint32_t OP_VARIABLE = 59;
+    constexpr uint32_t OP_DECORATE = 71;
+    constexpr uint32_t DECORATION_LOCATION = 30;
+    constexpr uint32_t STORAGE_INPUT = 1;
+    constexpr uint32_t EXECUTION_MODEL_VERTEX = 0;
+
+    if (wordCount < 5 || words[0] != 0x07230203)
+        return false;
+
+    const uint32_t bound = words[3];
+    std::vector<uint8_t> isInput(bound, 0);
+    std::vector<uint32_t*> locationWord(bound, nullptr);
+    bool vertex = false;
+
+    for (size_t i = 5; i < wordCount;)
+    {
+        const uint32_t length = words[i] >> 16;
+        const uint32_t opcode = words[i] & 0xFFFF;
+        if (length == 0 || i + length > wordCount)
+            return false;
+
+        const uint32_t* op = words + i;
+        if (opcode == OP_ENTRY_POINT && length >= 2 && op[1] == EXECUTION_MODEL_VERTEX)
+            vertex = true;
+        else if (opcode == OP_VARIABLE && length >= 4 && op[3] == STORAGE_INPUT && op[2] < bound)
+            isInput[op[2]] = 1;
+        else if (opcode == OP_DECORATE && length >= 4 && op[2] == DECORATION_LOCATION && op[1] < bound)
+            locationWord[op[1]] = words + i + 3;
+
+        i += length;
+    }
+
+    if (!vertex)
+        return false;
+
+    std::array<bool, 32> used{};
+    for (uint32_t id = 0; id < bound; id++)
+    {
+        if (isInput[id] && locationWord[id] != nullptr && *locationWord[id] < used.size())
+            used[*locationWord[id]] = true;
+    }
+
+    remap.fill(0xFF);
+    uint32_t next = 0;
+    for (uint32_t location = 0; location < used.size(); location++)
+    {
+        if (used[location])
+            remap[location] = uint8_t(next++);
+    }
+
+    const uint32_t limit = g_capabilities.maxVertexInputAttributes != 0 ? g_capabilities.maxVertexInputAttributes : 16;
+    if (next > limit)
+        return false;
+
+    for (uint32_t id = 0; id < bound; id++)
+    {
+        if (isInput[id] && locationWord[id] != nullptr && *locationWord[id] < used.size())
+            *locationWord[id] = remap[*locationWord[id]];
+    }
+
+    return true;
+}
+
+// Turns the ClipDistance builtin into a user output at the first free output location and the
+// ClipDistance capability into a second Shader declaration. Returns whether anything changed.
+static bool StripSpirvClipDistance(uint32_t* words, size_t wordCount)
+{
+    constexpr uint32_t OP_CAPABILITY = 17;
+    constexpr uint32_t OP_VARIABLE = 59;
+    constexpr uint32_t OP_DECORATE = 71;
+    constexpr uint32_t CAPABILITY_SHADER = 1;
+    constexpr uint32_t CAPABILITY_CLIP_DISTANCE = 32;
+    constexpr uint32_t DECORATION_BUILTIN = 11;
+    constexpr uint32_t DECORATION_LOCATION = 30;
+    constexpr uint32_t BUILTIN_CLIP_DISTANCE = 3;
+    constexpr uint32_t STORAGE_OUTPUT = 3;
+
+    if (wordCount < 5 || words[0] != 0x07230203)
+        return false;
+
+    const uint32_t bound = words[3];
+    std::vector<uint8_t> isOutput(bound, 0);
+    std::vector<uint32_t> location(bound, UINT32_MAX);
+    uint32_t* capabilityWord = nullptr;
+    uint32_t* clipDecoration = nullptr;
+
+    for (size_t i = 5; i < wordCount;)
+    {
+        const uint32_t length = words[i] >> 16;
+        const uint32_t opcode = words[i] & 0xFFFF;
+        if (length == 0 || i + length > wordCount)
+            return false;
+
+        uint32_t* op = words + i;
+        if (opcode == OP_CAPABILITY && length == 2 && op[1] == CAPABILITY_CLIP_DISTANCE)
+            capabilityWord = op + 1;
+        else if (opcode == OP_VARIABLE && length >= 4 && op[3] == STORAGE_OUTPUT && op[2] < bound)
+            isOutput[op[2]] = 1;
+        else if (opcode == OP_DECORATE && length == 4 && op[1] < bound)
+        {
+            if (op[2] == DECORATION_BUILTIN && op[3] == BUILTIN_CLIP_DISTANCE)
+                clipDecoration = op;
+            else if (op[2] == DECORATION_LOCATION)
+                location[op[1]] = op[3];
+        }
+
+        i += length;
+    }
+
+    if (clipDecoration == nullptr && capabilityWord == nullptr)
+        return false;
+
+    if (clipDecoration != nullptr)
+    {
+        uint32_t freeLocation = 0;
+        for (uint32_t id = 0; id < bound; id++)
+        {
+            if (isOutput[id] && location[id] != UINT32_MAX)
+                freeLocation = std::max(freeLocation, location[id] + 1);
+        }
+
+        clipDecoration[2] = DECORATION_LOCATION;
+        clipDecoration[3] = freeLocation;
+    }
+
+    if (capabilityWord != nullptr)
+        *capabilityWord = CAPABILITY_SHADER;
+
+    return true;
+}
+
+static std::unique_ptr<RenderShader> CreateSpirvShader(const void* data, size_t size)
+{
+    if (!g_compactDescriptorSets && !g_compactVertexLocations && !g_stripClipDistance)
+        return g_device->createShader(data, size, "shaderMain", RenderShaderFormat::SPIRV);
+
+    std::vector<uint32_t> words((size + 3) / 4);
+    memcpy(words.data(), data, size);
+
+    if (g_compactDescriptorSets)
+        RemapSpirvForCompactDescriptorSets(words.data(), words.size());
+
+    if (g_stripClipDistance)
+        StripSpirvClipDistance(words.data(), words.size());
+
+    std::array<uint8_t, 32> remap{};
+    const bool remapped = g_compactVertexLocations && CompactVertexInputLocations(words.data(), words.size(), remap);
+
+    auto shader = g_device->createShader(words.data(), size, "shaderMain", RenderShaderFormat::SPIRV);
+    if (remapped && shader != nullptr)
+    {
+        std::lock_guard lock(g_vertexLocationRemapMutex);
+        g_vertexLocationRemaps[shader.get()] = remap;
+    }
+
+    return shader;
+}
+
+static void ForgetVertexLocationRemap(const RenderShader* shader)
+{
+    if (shader == nullptr || !g_compactVertexLocations)
+        return;
+
+    std::lock_guard lock(g_vertexLocationRemapMutex);
+    g_vertexLocationRemaps.erase(shader);
+}
 
 static std::unique_ptr<GuestTexture> g_imFontTexture;
 static std::unique_ptr<RenderPipelineLayout> g_imPipelineLayout;
@@ -1897,9 +2239,7 @@ static void CreateImGuiBackend()
     descriptorSetBuilder.end(true, g_textureDescriptorSize);
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
 
-    descriptorSetBuilder.begin();
-    descriptorSetBuilder.addSampler(0, g_samplerDescriptorSize);
-    descriptorSetBuilder.end(true, g_samplerDescriptorSize);
+    BuildSamplerDescriptorSet(descriptorSetBuilder);
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
 
     pipelineLayoutBuilder.addPushConstant(0, 2, sizeof(ImGuiPushConstants), RenderShaderStageFlag::VERTEX | RenderShaderStageFlag::PIXEL);
@@ -1929,9 +2269,11 @@ static void CreateImGuiBackend()
     pipelineDesc.inputSlots = &inputSlot;
     pipelineDesc.inputSlotsCount = 1;
     g_imPipeline = g_device->createGraphicsPipeline(pipelineDesc);
+    CheckBuiltInPipeline(g_imPipeline.get(), "ImGui");
 
     pipelineDesc.renderTargetBlend[0].dstBlend = RenderBlend::ONE;
     g_imAdditivePipeline = g_device->createGraphicsPipeline(pipelineDesc);
+    CheckBuiltInPipeline(g_imAdditivePipeline.get(), "ImGui additive");
 
 #ifndef ENABLE_IM_FONT_ATLAS_SNAPSHOT
     ImFontAtlasSnapshot snapshot;
@@ -2160,7 +2502,8 @@ static void BeginCommandList()
     commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 1);
     commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 2);
     commandList->setGraphicsDescriptorSet(g_samplerDescriptorSet.get(), 3);
-    commandList->setGraphicsDescriptorSet(g_conditionalSurveyDescriptorSet.get(), 4);
+    if (g_conditionalSurveyDescriptorSet != nullptr)
+        commandList->setGraphicsDescriptorSet(g_conditionalSurveyDescriptorSet.get(), 4);
 
     g_readyForCommands = true;
     g_readyForCommands.notify_one();
@@ -2342,7 +2685,66 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
 
     g_capabilities = g_device->getCapabilities();
 
+    {
+        const RenderDeviceDescription& deviceInfo = g_device->getDescription();
+        const uint32_t apiVersion = deviceInfo.apiVersion;
+        LOGF("GPU: \"{}\" (vendor 0x{:X}), driver version 0x{:X}, Vulkan {}.{}.{}.",
+            deviceInfo.name, uint32_t(deviceInfo.vendor), deviceInfo.driverVersion,
+            (apiVersion >> 22) & 0x7F, (apiVersion >> 12) & 0x3FF, apiVersion & 0xFFF);
+
+        if (!deviceInfo.driverName.empty() || !deviceInfo.driverInfo.empty())
+            LOGF("GPU driver: \"{}\" \"{}\".", deviceInfo.driverName, deviceInfo.driverInfo);
+
+        LOGF("GPU limits: vertexAttributes={} vertexBindings={} clipDistance={} fragmentStoresAndAtomics={} vertexPipelineStoresAndAtomics={}.",
+            g_capabilities.maxVertexInputAttributes, g_capabilities.maxVertexInputBindings, g_capabilities.shaderClipDistance,
+            g_capabilities.fragmentStoresAndAtomics, g_capabilities.vertexPipelineStoresAndAtomics);
+
+        LOGF("GPU features: descriptorSets={} descriptorIndexing={} scalarBlockLayout={} bufferDeviceAddress={} BC={} ETC2={} mirrorClampToEdge={} presentWait={} triangleFan={} sampledImages={} samplers={} maxTexture={} VRAM={} MiB.",
+            g_capabilities.maxBoundDescriptorSets, g_capabilities.descriptorIndexing, g_capabilities.scalarBlockLayout, g_capabilities.bufferDeviceAddress,
+            g_capabilities.textureCompressionBC, g_capabilities.textureCompressionETC2, g_capabilities.samplerMirrorClampToEdge,
+            g_capabilities.presentWait, g_capabilities.triangleFan, g_capabilities.maxSampledImageDescriptors,
+            g_capabilities.maxSamplerDescriptors, g_capabilities.maxTextureSize, deviceInfo.dedicatedVideoMemory / (1024 * 1024));
+    }
+
 #ifdef __ANDROID__
+    {
+        // <game root>/descriptor_sets_compact.enabled forces the compact layout on GPUs that do
+        // not need it (Adreno), to test it without a Mali device.
+        std::error_code error;
+        const bool forced = std::filesystem::exists(os::android::GetDataRoot() / "descriptor_sets_compact.enabled", error);
+        const bool limited = g_capabilities.maxBoundDescriptorSets != 0 && g_capabilities.maxBoundDescriptorSets < 5;
+        g_compactDescriptorSets = (g_backend == Backend::VULKAN) && (forced || limited);
+        g_samplerSlotOffset = g_compactDescriptorSets ? 1 : 0;
+
+        // <game root>/vertex_locations_compact.enabled forces the renumbering on GPUs with enough
+        // vertex attributes (Adreno) to test it without a Mali device.
+        const bool forcedVertex = std::filesystem::exists(os::android::GetDataRoot() / "vertex_locations_compact.enabled", error);
+        const bool limitedVertex = g_capabilities.maxVertexInputAttributes != 0 && g_capabilities.maxVertexInputAttributes < 20;
+        g_compactVertexLocations = (g_backend == Backend::VULKAN) && (forcedVertex || limitedVertex);
+
+        // <game root>/clip_distance_strip.enabled forces it on GPUs that support clip distances.
+        const bool forcedClip = std::filesystem::exists(os::android::GetDataRoot() / "clip_distance_strip.enabled", error);
+        g_stripClipDistance = (g_backend == Backend::VULKAN) && (forcedClip || !g_capabilities.shaderClipDistance);
+
+        if (g_stripClipDistance)
+        {
+            LOGF_WARNING("ClipDistance removed from shaders ({}); user clip planes are disabled.",
+                forcedClip ? "forced by clip_distance_strip.enabled" : "the device does not support shaderClipDistance");
+        }
+
+        if (g_compactVertexLocations)
+        {
+            LOGF_WARNING("Compact vertex input locations ({}).",
+                forcedVertex ? "forced by vertex_locations_compact.enabled" : fmt::format("the device allows only {} vertex attributes", g_capabilities.maxVertexInputAttributes));
+        }
+
+        if (g_compactDescriptorSets)
+        {
+            LOGF_WARNING("Compact descriptor layout: the conditional survey buffer shares the sampler set ({}).",
+                forced ? "forced by descriptor_sets_compact.enabled" : fmt::format("the device allows only {} descriptor sets", g_capabilities.maxBoundDescriptorSets));
+        }
+    }
+
     {
         // Testing hook: <game root>/bc_fallback.enabled runs the BC texture fallback on GPUs that
         // support BC (Adreno), to check it without a Mali device. If the file contains "decode",
@@ -2507,7 +2909,9 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     descriptorSetBuilder.addTexture(0, g_textureDescriptorSize);
     descriptorSetBuilder.end(true, g_textureDescriptorSize);
     
+    LOGF("Init: texture descriptor set ({} textures).", g_textureDescriptorSize);
     g_textureDescriptorSet = descriptorSetBuilder.create(g_device.get());
+    LOG("Init: placeholder textures.");
     
     for (size_t i = 0; i < TEXTURE_DESCRIPTOR_NULL_COUNT; i++)
     {
@@ -2537,7 +2941,11 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         case TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D_ARRAY:
             desc.dimension = RenderTextureDimension::TEXTURE_2D;
             desc.arraySize = 1;
+#ifdef __ANDROID__
+            viewDesc.dimension = RenderTextureViewDimension::TEXTURE_2D_ARRAY;
+#else
             viewDesc.dimension = RenderTextureViewDimension::TEXTURE_2D;
+#endif
             break;
 
         case TEXTURE_DESCRIPTOR_NULL_TEXTURE_CUBE:
@@ -2562,34 +2970,41 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
     
-    descriptorSetBuilder.begin();
-    descriptorSetBuilder.addSampler(0, g_samplerDescriptorSize);
-    descriptorSetBuilder.end(true, g_samplerDescriptorSize);
+    BuildSamplerDescriptorSet(descriptorSetBuilder);
     
+    LOGF("Init: sampler descriptor set ({} samplers).", g_samplerDescriptorSize);
     g_samplerDescriptorSet = descriptorSetBuilder.create(g_device.get());
     auto& [descriptorIndex, sampler] = g_samplerStates[XXH3_64bits(&g_samplerDescs[0], sizeof(RenderSamplerDesc))];
     descriptorIndex = 1;
     sampler = g_device->createSampler(g_samplerDescs[0]);
-    g_samplerDescriptorSet->setSampler(0, sampler.get());
+    g_samplerDescriptorSet->setSampler(g_samplerSlotOffset, sampler.get());
 
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
 
+    LOG("Init: conditional survey buffer.");
     RenderBufferDesc conditionalSurveyBufferDesc;
     conditionalSurveyBufferDesc.size = CONDITIONAL_SURVEY_MAX * sizeof(uint32_t);
     conditionalSurveyBufferDesc.heapType = RenderHeapType::DEFAULT;
     conditionalSurveyBufferDesc.flags = RenderBufferFlag::STORAGE | RenderBufferFlag::UNORDERED_ACCESS;
     g_conditionalSurveyBuffer = g_device->createBuffer(conditionalSurveyBufferDesc);
 
-    RenderDescriptorSetBuilder conditionalSurveyDescriptorSetBuilder;
-    conditionalSurveyDescriptorSetBuilder.begin();
-    conditionalSurveyDescriptorSetBuilder.addReadWriteStructuredBuffer(0);
-    conditionalSurveyDescriptorSetBuilder.end();
-    g_conditionalSurveyDescriptorSet = conditionalSurveyDescriptorSetBuilder.create(g_device.get());
-
     RenderBufferStructuredView conditionalSurveyStructuredView(sizeof(uint32_t));
-    g_conditionalSurveyDescriptorSet->setBuffer(0, g_conditionalSurveyBuffer.get(), 0, &conditionalSurveyStructuredView);
 
-    pipelineLayoutBuilder.addDescriptorSet(conditionalSurveyDescriptorSetBuilder);
+    if (g_compactDescriptorSets)
+    {
+        g_samplerDescriptorSet->setBuffer(0, g_conditionalSurveyBuffer.get(), 0, &conditionalSurveyStructuredView);
+    }
+    else
+    {
+        RenderDescriptorSetBuilder conditionalSurveyDescriptorSetBuilder;
+        conditionalSurveyDescriptorSetBuilder.begin();
+        conditionalSurveyDescriptorSetBuilder.addReadWriteStructuredBuffer(0);
+        conditionalSurveyDescriptorSetBuilder.end();
+        g_conditionalSurveyDescriptorSet = conditionalSurveyDescriptorSetBuilder.create(g_device.get());
+        g_conditionalSurveyDescriptorSet->setBuffer(0, g_conditionalSurveyBuffer.get(), 0, &conditionalSurveyStructuredView);
+
+        pipelineLayoutBuilder.addDescriptorSet(conditionalSurveyDescriptorSetBuilder);
+    }
 
     if (g_backend != Backend::D3D12)
     {
@@ -2604,8 +3019,10 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     }
     pipelineLayoutBuilder.end();
     
+    LOG("Init: pipeline layout.");
     g_pipelineLayout = pipelineLayoutBuilder.create(g_device.get());
 
+    LOG("Init: built-in shaders and pipelines.");
     g_copyShader = CREATE_SHADER(copy_vs);
     g_copyColorShader = CREATE_SHADER(copy_color_ps);
     auto copyDepthShader = CREATE_SHADER(copy_depth_ps);
@@ -2619,6 +3036,7 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     desc.depthWriteEnabled = true;
     desc.depthTargetFormat = RenderFormat::D32_FLOAT_S8_UINT;
     g_copyDepthPipeline = g_device->createGraphicsPipeline(desc);
+    CheckBuiltInPipeline(g_copyDepthPipeline.get(), "copy depth");
 
     g_resolveMsaaColorShaders[0] = CREATE_SHADER(resolve_msaa_color_2x);
     g_resolveMsaaColorShaders[1] = CREATE_SHADER(resolve_msaa_color_4x);
@@ -2649,6 +3067,7 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         desc.depthWriteEnabled = true;
         desc.depthTargetFormat = RenderFormat::D32_FLOAT_S8_UINT;
         g_resolveMsaaDepthPipelines[i] = g_device->createGraphicsPipeline(desc);
+        CheckBuiltInPipeline(g_resolveMsaaDepthPipelines[i].get(), "resolve MSAA depth");
     }
 
     g_enhancedBurnoutBlurVSShader = CREATE_SHADER(enhanced_burnout_blur_vs);
@@ -2670,6 +3089,7 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     desc.renderTargetBlend[0] = RenderBlendDesc::Copy();
     desc.renderTargetCount = 1;
     g_gammaCorrectionPipeline = g_device->createGraphicsPipeline(desc);
+    CheckBuiltInPipeline(g_gammaCorrectionPipeline.get(), "gamma correction");
 
     // NOTE: We initially allocate this on host memory to make the installer work, even if the 4 GB memory allocation fails.
     g_backBufferHolder = std::make_unique<GuestSurface>(ResourceType::RenderTarget);
@@ -2680,6 +3100,7 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     g_backBuffer->format = BACKBUFFER_FORMAT;
     g_backBuffer->textureHolder = g_device->createTexture(RenderTextureDesc::Texture2D(1, 1, 1, BACKBUFFER_FORMAT, RenderTextureFlag::RENDER_TARGET));
 
+    LOG("Init: first swap chain check.");
     Video::ComputeViewportDimensions();
     CheckSwapChain();
     BeginCommandList();
@@ -4339,6 +4760,7 @@ static GuestTexture* CreateTexture(uint32_t width, uint32_t height, uint32_t dep
     texture->descriptorIndex = g_textureDescriptorAllocator.allocate();
 
     g_textureDescriptorSet->setTexture(texture->descriptorIndex, texture->texture, RenderTextureLayout::SHADER_READ, texture->textureView.get());
+    CreateArrayTextureView(*texture, viewDesc);
 
 #ifdef _DEBUG 
     texture->texture->setName(fmt::format("Texture {:X}", g_memory.MapVirtual(texture)));
@@ -4787,6 +5209,7 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
                                 desc.renderTargetBlend[0] = RenderBlendDesc::Copy();
                                 desc.renderTargetCount = 1;
                                 resolveMsaaColorPipeline = g_device->createGraphicsPipeline(desc);
+                                CheckBuiltInPipeline(resolveMsaaColorPipeline.get(), "resolve MSAA color");
                             }
 
                             pipeline = resolveMsaaColorPipeline.get();
@@ -4811,6 +5234,7 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
                                 desc.renderTargetBlend[0] = RenderBlendDesc::Copy();
                                 desc.renderTargetCount = 1;
                                 copyColorPipeline = g_device->createGraphicsPipeline(desc);
+                                CheckBuiltInPipeline(copyColorPipeline.get(), "copy color");
                             }
 
                             pipeline = copyColorPipeline.get();
@@ -5243,8 +5667,11 @@ static void SetTextureInRenderThread(uint32_t index, GuestTexture* texture)
     SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.texture2DIndices[index],
         viewDimension == RenderTextureViewDimension::TEXTURE_2D ? texture->descriptorIndex : TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D);
 
-    SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.texture2DArrayIndices[index], texture != nullptr &&
-        viewDimension == RenderTextureViewDimension::TEXTURE_2D ? texture->descriptorIndex : TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D_ARRAY);
+    uint32_t arrayDescriptorIndex = TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D_ARRAY;
+    if (texture != nullptr && viewDimension == RenderTextureViewDimension::TEXTURE_2D)
+        arrayDescriptorIndex = texture->arrayDescriptorIndex != NULL ? texture->arrayDescriptorIndex : texture->descriptorIndex;
+
+    SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.texture2DArrayIndices[index], arrayDescriptorIndex);
 
     SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.textureCubeIndices[index], texture != nullptr &&
         viewDimension == RenderTextureViewDimension::TEXTURE_CUBE ? texture->descriptorIndex : TEXTURE_DESCRIPTOR_NULL_TEXTURE_CUBE);
@@ -5362,7 +5789,7 @@ static RenderShader* GetOrLinkShader(GuestShader* guestShader, uint32_t specCons
                 bool result = smolv::Decode(compressedSpirvData, guestShader->shaderCacheEntry->spirvSize, decoded.data(), decoded.size());
                 assert(result);
 
-                guestShader->shader = g_device->createShader(decoded.data(), decoded.size(), "shaderMain", RenderShaderFormat::SPIRV);
+                guestShader->shader = CreateSpirvShader(decoded.data(), decoded.size());
                 break;
             }
             case Backend::D3D12:
@@ -5601,6 +6028,112 @@ static void SanitizePipelineState(PipelineState& pipelineState)
     pipelineState.specConstants &= specConstantsMask;
 }
 
+#ifdef __ANDROID__
+// The driver may explain a rejected pipeline only in logcat, which testers without adb cannot
+// read. An app may read its own logcat lines, so the first failure copies them into log.txt.
+static void DumpOwnLogcatOnce(const char* reason)
+{
+    static std::atomic<bool> s_dumped{ false };
+    if (s_dumped.exchange(true))
+        return;
+
+    char command[128];
+    snprintf(command, sizeof(command), "logcat -d -v brief -t 400 --pid=%d 2>/dev/null", int(getpid()));
+
+    FILE* pipe = popen(command, "r");
+    if (pipe == nullptr)
+    {
+        LOGF_WARNING("Could not read logcat after {}: {}", reason, strerror(errno));
+        return;
+    }
+
+    LOGF("Logcat lines of this process after {} (own log lines skipped):", reason);
+
+    char line[1024];
+    uint32_t printed = 0;
+    while (printed < 150 && fgets(line, sizeof(line), pipe) != nullptr)
+    {
+        if (strstr(line, "MarathonRecomp") != nullptr)
+            continue;
+
+        size_t length = strlen(line);
+        while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r'))
+            line[--length] = '\0';
+
+        if (length == 0)
+            continue;
+
+        LOGF("[logcat] {}", line);
+        ++printed;
+    }
+
+    pclose(pipe);
+    LOGF("End of logcat lines ({}).", printed);
+}
+
+static void DescribeShader(std::string& out, const char* label, const GuestShader* shader)
+{
+    out += label;
+    if (shader == nullptr)
+    {
+        out += "none";
+    }
+    else if (shader->shaderCacheEntry != nullptr)
+    {
+        out += fmt::format("{:016X} \"{}\"", shader->shaderCacheEntry->hash, shader->shaderCacheEntry->filename);
+    }
+    else
+    {
+        out += "built-in";
+    }
+}
+
+static void DescribeGamePipeline(std::string& text, const PipelineState& pipelineState, const RenderGraphicsPipelineDesc& desc)
+{
+    DescribeShader(text, " vs=", pipelineState.vertexShader);
+    DescribeShader(text, " ps=", pipelineState.enableConditionalSurvey ? g_conditionalSurveyPSShader.get() : pipelineState.pixelShader);
+    text += fmt::format(" spec=0x{:X} rt={} depth={} samples={} a2c={} blend={} topology={} cull={}",
+        pipelineState.specConstants,
+        magic_enum::enum_name(pipelineState.renderTargetFormat), magic_enum::enum_name(pipelineState.depthStencilFormat),
+        uint32_t(pipelineState.sampleCount), pipelineState.enableAlphaToCoverage, pipelineState.alphaBlendEnable,
+        magic_enum::enum_name(desc.primitiveTopology), magic_enum::enum_name(pipelineState.cullMode));
+
+    text += " inputs=[";
+    for (uint32_t i = 0; i < desc.inputElementsCount; i++)
+    {
+        const RenderInputElement& element = desc.inputElements[i];
+        text += fmt::format("{}{}{}:{}@{}+{}#{}", i > 0 ? " " : "", element.semanticName != nullptr ? element.semanticName : "?",
+            element.semanticIndex, magic_enum::enum_name(element.format), element.slotIndex, element.alignedByteOffset, element.location);
+    }
+    text += "]";
+}
+
+static void ReportGamePipelineFailure(const PipelineState& pipelineState, const RenderGraphicsPipelineDesc& desc)
+{
+    static std::atomic<uint32_t> s_failureCount{ 0 };
+    const uint32_t failureIndex = ++s_failureCount;
+
+    std::string text = fmt::format("Pipeline creation failed (#{}):", failureIndex);
+    DescribeGamePipeline(text, pipelineState, desc);
+
+    LOGF_ERROR("{}", text);
+    DumpOwnLogcatOnce("the first pipeline failure");
+}
+
+static void CheckBuiltInPipeline(const RenderPipeline* pipeline, const char* name)
+{
+    if (pipeline != nullptr && !pipeline->isValid())
+    {
+        LOGF_ERROR("Built-in pipeline \"{}\" could not be created.", name);
+        DumpOwnLogcatOnce("the first pipeline failure");
+    }
+}
+#else
+static void CheckBuiltInPipeline(const RenderPipeline*, const char*)
+{
+}
+#endif
+
 static std::unique_ptr<RenderPipeline> CreateGraphicsPipeline(const PipelineState& pipelineState)
 {
 #ifdef ASYNC_PSO_DEBUG
@@ -5660,6 +6193,42 @@ static std::unique_ptr<RenderPipeline> CreateGraphicsPipeline(const PipelineStat
     desc.alphaToCoverageEnabled = pipelineState.enableAlphaToCoverage;
     desc.inputElements = pipelineState.vertexDeclaration->inputElements.get();
     desc.inputElementsCount = pipelineState.vertexDeclaration->inputElementCount;
+
+#ifdef __ANDROID__
+    // Translate the declaration to the vertex shader's renumbered locations, dropping the
+    // elements it does not read (see g_compactVertexLocations).
+    std::vector<RenderInputElement> remappedElements;
+    if (g_compactVertexLocations)
+    {
+        std::array<uint8_t, 32> remap{};
+        bool found = false;
+        {
+            std::lock_guard lock(g_vertexLocationRemapMutex);
+            auto it = g_vertexLocationRemaps.find(desc.vertexShader);
+            if (it != g_vertexLocationRemaps.end())
+            {
+                remap = it->second;
+                found = true;
+            }
+        }
+
+        if (found)
+        {
+            for (uint32_t i = 0; i < desc.inputElementsCount; i++)
+            {
+                RenderInputElement element = desc.inputElements[i];
+                if (element.location < remap.size() && remap[element.location] != 0xFF)
+                {
+                    element.location = remap[element.location];
+                    remappedElements.push_back(element);
+                }
+            }
+
+            desc.inputElements = remappedElements.data();
+            desc.inputElementsCount = uint32_t(remappedElements.size());
+        }
+    }
+#endif
     
     RenderSpecConstant specConstant{};
     specConstant.value = pipelineState.specConstants;
@@ -5674,9 +6243,9 @@ static std::unique_ptr<RenderPipeline> CreateGraphicsPipeline(const PipelineStat
     uint32_t inputSlotIndices[16]{};
     uint32_t inputSlotCount = 0;
     
-    for (size_t i = 0; i < pipelineState.vertexDeclaration->inputElementCount; i++)
+    for (size_t i = 0; i < desc.inputElementsCount; i++)
     {
-        auto& inputElement = pipelineState.vertexDeclaration->inputElements[i];
+        auto& inputElement = desc.inputElements[i];
         auto& inputSlotIndex = inputSlotIndices[inputElement.slotIndex];
     
         if (inputSlotIndex == NULL)
@@ -5691,7 +6260,23 @@ static std::unique_ptr<RenderPipeline> CreateGraphicsPipeline(const PipelineStat
     desc.inputSlots = inputSlots;
     desc.inputSlotsCount = inputSlotCount;
     
+#ifdef __ANDROID__
+    // If the driver crashes while compiling, the crash report names this pipeline.
+    {
+        std::string context = "compiling pipeline";
+        DescribeGamePipeline(context, pipelineState, desc);
+        os::android::SetCrashContext(context.c_str());
+    }
+#endif
+
     auto pipeline = g_device->createGraphicsPipeline(desc);
+
+#ifdef __ANDROID__
+    os::android::SetCrashContext(nullptr);
+
+    if (pipeline != nullptr && !pipeline->isValid())
+        ReportGamePipelineFailure(pipelineState, desc);
+#endif
 
 #ifdef ASYNC_PSO_DEBUG
     --g_pipelinesCurrentlyCompiling;
@@ -5999,7 +6584,7 @@ static void ProcSetSamplerState(const RenderCommand& cmd)
             descriptorIndex = g_samplerStates.size();
             sampler = g_device->createSampler(samplerDesc);
 
-            g_samplerDescriptorSet->setSampler(descriptorIndex - 1, sampler.get());
+            g_samplerDescriptorSet->setSampler(descriptorIndex - 1 + g_samplerSlotOffset, sampler.get());
         }
 
         SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.samplerIndices[args.index], descriptorIndex - 1);
@@ -7472,6 +8057,7 @@ static bool LoadTexture(GuestTexture& texture, const uint8_t* data, size_t dataS
         texture.height = ddsDesc.height;
         texture.mipLevels = viewDesc.mipLevels;
         texture.viewDimension = viewDesc.dimension;
+        CreateArrayTextureView(texture, viewDesc);
 
         struct Slice
         {
@@ -7642,6 +8228,10 @@ static bool LoadTexture(GuestTexture& texture, const uint8_t* data, size_t dataS
 
             texture.descriptorIndex = g_textureDescriptorAllocator.allocate();
             g_textureDescriptorSet->setTexture(texture.descriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ);
+
+            RenderTextureViewDesc arrayViewDesc = RenderTextureViewDesc::Texture2D(RenderFormat::R8G8B8A8_UNORM);
+            arrayViewDesc.mipLevels = 1;
+            CreateArrayTextureView(texture, arrayViewDesc);
 
             uint32_t rowPitch = (width * 4 + PITCH_ALIGNMENT - 1) & ~(PITCH_ALIGNMENT - 1);
             uint32_t slicePitch = rowPitch * height;
