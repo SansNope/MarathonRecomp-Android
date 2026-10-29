@@ -152,6 +152,15 @@ enum class ETripleBuffering : uint32_t
 static constexpr int32_t FPS_MIN = 15;
 static constexpr int32_t FPS_MAX = 241;
 
+// Lowest FPS cap the options menu offers. Android blocks caps below 60 until upstream supports
+// them: its frame-rate fixes only cover caps above 60, and testers saw the game itself slow
+// down at 30 (Helio G99, 0.3x speed) and in scripted scenes at 35-50.
+#ifdef __ANDROID__
+static constexpr int32_t FPS_MIN_OPTION = 60;
+#else
+static constexpr int32_t FPS_MIN_OPTION = FPS_MIN;
+#endif
+
 enum class EAntiAliasing : uint32_t
 {
     Off = 0,

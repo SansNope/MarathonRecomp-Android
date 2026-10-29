@@ -2,7 +2,9 @@
 #include <os/android/storage_android.h>
 #include <os/logger.h>
 
+#include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <sched.h>
 #include <sys/syscall.h>
@@ -34,7 +36,10 @@ namespace
     constexpr uint64_t SchedFlagKeepParams = 0x10;
     constexpr uint64_t SchedFlagUtilClampMin = 0x20;
 
-    const std::vector<std::string> DefaultWorkerPrefixes = { "FrustumCulling", "UpdateResource", "FrameSynchroniz" };
+    // The guest threads the main thread waits for every frame ([wakers] in perf10 on a POCO F5:
+    // model, resource and particle updates, culling, frame synchronisation, physics, document work).
+    const std::vector<std::string> DefaultWorkerPrefixes = { "FrustumCulling", "UpdateResource", "FrameSynchroniz",
+        "ModelStandard", "ManageParticle", "HavokRunner", "DocMarathon" };
 
     struct UclampSettings
     {
@@ -51,6 +56,14 @@ namespace
         cpu_set_t cpus{};
         std::string cpuList;
         std::vector<std::string> workerPrefixes = DefaultWorkerPrefixes;
+        // The guest main and render threads get the same mask. A frame-capped thread that waits
+        // for the GPU or the pacing sleep looks lightly loaded, so the scheduler keeps it on the
+        // little cores: Pixel 7 Pro (Tensor G2, capacities 158/763/1024) ran both on the A55s at
+        // 0.9-1.2 GHz with the big cores idle, 36-41 FPS, and 45-59 FPS whenever they moved.
+        bool mainAndRender = true;
+        // The guest main thread's mask: `cpus`, or the strongest cores with
+        // thread_affinity_main_strongest.enabled.
+        cpu_set_t mainCpus{};
     };
 
     std::string Trim(std::string_view value)
@@ -247,6 +260,32 @@ namespace
         return true;
     }
 
+    // The cores sharing the highest cpu_capacity (the prime cluster).
+    bool StrongestCpus(cpu_set_t& out)
+    {
+        std::vector<std::pair<int, uint32_t>> capacities;
+        uint32_t highest = 0;
+        for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+        {
+            std::ifstream file(fmt::format("/sys/devices/system/cpu/cpu{}/cpu_capacity", cpu));
+            uint32_t capacity = 0;
+            if (!(file >> capacity))
+                break;
+
+            capacities.emplace_back(cpu, capacity);
+            highest = std::max(highest, capacity);
+        }
+
+        CPU_ZERO(&out);
+        for (const auto& [cpu, capacity] : capacities)
+        {
+            if (capacity == highest)
+                CPU_SET(cpu, &out);
+        }
+
+        return CPU_COUNT(&out) > 0;
+    }
+
     std::string FormatCpus(const cpu_set_t& cpus)
     {
         std::string result;
@@ -281,6 +320,8 @@ namespace
                     cpuValue = value;
                 else if (key == "workers")
                     result.workerPrefixes = SplitList(value);
+                else if (key == "main_render")
+                    result.mainAndRender = value != "0";
             });
 
             if (!cpuValue.empty() && !ParseCpuList(cpuValue, result.cpus))
@@ -299,7 +340,34 @@ namespace
             result.enabled = true;
 
             result.cpuList = FormatCpus(result.cpus);
-            LOGFN("Thread affinity enabled: cpus={} ({}) workers={}.", result.cpuList, decision, JoinList(result.workerPrefixes));
+            LOGFN("Thread affinity enabled: cpus={} ({}) workers={} main_render={}.", result.cpuList, decision, JoinList(result.workerPrefixes), result.mainAndRender ? 1 : 0);
+
+            result.mainCpus = result.cpus;
+            if (std::filesystem::exists(os::android::GetDataRoot() / "thread_affinity_main_strongest.enabled", error))
+            {
+                // A single strongest core (SM7475's prime core) is often paused by core_ctl; the
+                // main thread would then lose its only core, so at least two are required.
+                cpu_set_t strongest;
+                cpu_set_t inside;
+                if (!StrongestCpus(strongest))
+                {
+                    LOGN("Thread affinity: main thread on the strongest cores requested, but cpu_capacity is unavailable; keeping the common set.");
+                }
+                else
+                {
+                    CPU_AND(&inside, &strongest, &result.cpus);
+                    if (!CPU_EQUAL(&inside, &strongest) || CPU_COUNT(&strongest) < 2)
+                    {
+                        LOGFN("Thread affinity: main thread on the strongest cores requested, but the strongest cores {} are fewer than 2 or outside cpus {}; keeping the common set.",
+                            FormatCpus(strongest), result.cpuList);
+                    }
+                    else
+                    {
+                        result.mainCpus = strongest;
+                        LOGFN("Thread affinity: main thread on the strongest cores {} (thread_affinity_main_strongest.enabled).", FormatCpus(strongest));
+                    }
+                }
+            }
             return result;
         }();
 
@@ -346,57 +414,103 @@ namespace
             LOGFN("Thread uclamp: {} \"{}\" (tid {}) uclamp_min {} (read back failed, errno {}).", role, name, tid, utilMin, errno);
     }
 
-    // Worker threads that got the mask, for re-applying it after returning to the foreground.
-    std::mutex g_affinityThreadsMutex;
-    std::vector<std::pair<pid_t, std::string>> g_affinityThreads;
-
-    bool ApplyAffinity(const AffinitySettings& settings, pid_t tid, const char* name)
+    // Threads that got a mask, for re-applying it after returning to the foreground.
+    struct PinnedThread
     {
-        if (sched_setaffinity(tid, sizeof(settings.cpus), &settings.cpus) != 0)
+        pid_t tid;
+        std::string name;
+        const cpu_set_t* cpus;
+    };
+
+    std::mutex g_affinityThreadsMutex;
+    std::vector<PinnedThread> g_affinityThreads;
+
+    bool ApplyAffinity(const cpu_set_t& cpus, pid_t tid, const char* name)
+    {
+        const std::string cpuList = FormatCpus(cpus);
+        if (sched_setaffinity(tid, sizeof(cpus), &cpus) != 0)
         {
             const int error = errno;
-            LOGFN_WARNING("Thread affinity: sched_setaffinity({}) failed for \"{}\" (tid {}): errno {} ({}).", settings.cpuList, name, tid, error, strerror(error));
+            LOGFN_WARNING("Thread affinity: sched_setaffinity({}) failed for \"{}\" (tid {}): errno {} ({}).", cpuList, name, tid, error, strerror(error));
             return false;
         }
 
-        // Read back: the effective mask is also limited by the cpuset (e.g. cores paused by core_ctl).
+        // Read back: the effective mask is also limited by the active cores (e.g. cores paused by core_ctl).
         cpu_set_t current{};
         if (sched_getaffinity(tid, sizeof(current), &current) == 0)
-            LOGFN("Thread affinity: \"{}\" (tid {}) cpus {} (read back {}).", name, tid, settings.cpuList, FormatCpus(current));
+            LOGFN("Thread affinity: \"{}\" (tid {}) cpus {} (read back {}).", name, tid, cpuList, FormatCpus(current));
         else
-            LOGFN("Thread affinity: \"{}\" (tid {}) cpus {} (read back failed, errno {}).", name, tid, settings.cpuList, errno);
+            LOGFN("Thread affinity: \"{}\" (tid {}) cpus {} (read back failed, errno {}).", name, tid, cpuList, errno);
 
         return true;
     }
 
-    // A cpuset change while the app is in the background (top-app -> background -> top-app) may
-    // reset the mask on some kernels. Restore it on return and log how many threads had lost it.
-    // Each tid is checked against its thread name first, so a reused tid is never touched.
-    void ReapplyAffinity()
+    // sched_getaffinity reports the mask limited to the active cores, so a core paused by core_ctl
+    // (SM7475 pauses idle big cores) is missing from it; only cores outside the set mean the mask
+    // was reset.
+    bool HasCpusOutside(const cpu_set_t& current, const cpu_set_t& allowed)
     {
-        const auto& settings = GetAffinitySettings();
+        for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+        {
+            if (CPU_ISSET(cpu, &current) && !CPU_ISSET(cpu, &allowed))
+                return true;
+        }
+
+        return false;
+    }
+
+    // A cpuset change (top-app -> background -> top-app) resets the mask of every thread moved, and
+    // the move back to top-app can come after the activity's resume (seen on a Pixel 7 Pro: the
+    // restore on resume found all threads at the background cores, and the render thread later ran
+    // on a little core). Restores the mask of the pinned threads that lost it; a thread with a
+    // changed mask is checked against its name first, so a reused tid is never touched.
+    // `found` receives the mask of the first thread that had lost its own.
+    int RestoreAffinity(int& checked, std::string& found)
+    {
         std::lock_guard lock(g_affinityThreadsMutex);
 
-        int checked = 0;
+        checked = 0;
         int lost = 0;
-        for (const auto& [tid, name] : g_affinityThreads)
+        for (const auto& thread : g_affinityThreads)
         {
-            std::ifstream commFile(fmt::format("/proc/self/task/{}/comm", tid));
+            cpu_set_t current{};
+            const bool read = sched_getaffinity(thread.tid, sizeof(current), &current) == 0;
+            if (read && !HasCpusOutside(current, *thread.cpus))
+            {
+                ++checked;
+                continue;
+            }
+
+            std::ifstream commFile(fmt::format("/proc/self/task/{}/comm", thread.tid));
             std::string comm;
-            if (!std::getline(commFile, comm) || comm != name.substr(0, 15))
+            if (!std::getline(commFile, comm) || comm != thread.name.substr(0, 15))
                 continue;
 
             ++checked;
-            cpu_set_t current{};
-            if (sched_getaffinity(tid, sizeof(current), &current) == 0 && CPU_EQUAL(&current, &settings.cpus))
-                continue;
-
-            ++lost;
-            sched_setaffinity(tid, sizeof(settings.cpus), &settings.cpus);
+            if (lost++ == 0)
+                found = read ? FormatCpus(current) : std::string("unreadable");
+            sched_setaffinity(thread.tid, sizeof(*thread.cpus), thread.cpus);
         }
 
-        LOGFN("Thread affinity: back in the foreground, {} of {} worker threads had lost cpus {} and were restored.",
-            lost, checked, settings.cpuList);
+        return lost;
+    }
+
+    std::atomic<int64_t> g_foregroundAtNs{ 0 };
+
+    int64_t NowNs()
+    {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+
+    void ReapplyAffinity()
+    {
+        g_foregroundAtNs = NowNs();
+
+        int checked = 0;
+        std::string found;
+        const int lost = RestoreAffinity(checked, found);
+        LOGFN("Thread affinity: back in the foreground, {} of {} pinned threads had lost their cpus{} and were restored.",
+            lost, checked, lost ? fmt::format(" (first found with {})", found) : std::string());
     }
 
     bool SDLCALL OnSdlEvent(void*, SDL_Event* event)
@@ -421,10 +535,11 @@ namespace
         }
 
         const auto& affinity = GetAffinitySettings();
-        if (affinity.enabled && MatchesPrefix(view, affinity.workerPrefixes) && ApplyAffinity(affinity, tid, name))
+        const bool pinned = MatchesPrefix(view, affinity.workerPrefixes) || (affinity.mainAndRender && view == "Render Thread");
+        if (affinity.enabled && pinned && ApplyAffinity(affinity.cpus, tid, name))
         {
             std::lock_guard lock(g_affinityThreadsMutex);
-            g_affinityThreads.emplace_back(tid, name);
+            g_affinityThreads.push_back({ tid, name, &affinity.cpus });
         }
     }
 }
@@ -445,8 +560,51 @@ void os::android::thread_hints::ApplyToMainThread()
     for (const auto& [tid, name] : pending)
         ApplyByName(tid, name.c_str());
 
-    if (GetAffinitySettings().enabled)
+    const auto& affinity = GetAffinitySettings();
+    if (affinity.enabled && affinity.mainAndRender)
+    {
+        // Registered under its kernel name, which ReapplyAffinity compares with.
+        const pid_t tid = gettid();
+        std::ifstream commFile(fmt::format("/proc/self/task/{}/comm", tid));
+        std::string comm;
+        std::getline(commFile, comm);
+        if (ApplyAffinity(affinity.mainCpus, tid, comm.empty() ? "guest main" : comm.c_str()) && !comm.empty())
+        {
+            std::lock_guard lock(g_affinityThreadsMutex);
+            g_affinityThreads.push_back({ tid, comm, &affinity.mainCpus });
+        }
+    }
+
+    if (affinity.enabled)
         SDL_AddEventWatch(OnSdlEvent, nullptr);
+}
+
+void os::android::thread_hints::CheckAffinity()
+{
+    static int64_t s_nextCheckNs = 0;
+    static uint32_t s_logged = 0;
+
+    const auto& settings = GetAffinitySettings();
+    if (!settings.enabled)
+        return;
+
+    const int64_t now = NowNs();
+    if (now < s_nextCheckNs)
+        return;
+    s_nextCheckNs = now + 2000000000LL;
+
+    int checked = 0;
+    std::string found;
+    const int lost = RestoreAffinity(checked, found);
+    if (lost == 0 || s_logged >= 100)
+        return;
+
+    ++s_logged;
+    const int64_t foregroundAt = g_foregroundAtNs.load();
+    LOGFN("Thread affinity: {} of {} pinned threads had lost their cpus (first found with {}; {}) and were restored{}.",
+        lost, checked, found,
+        foregroundAt != 0 ? fmt::format("{:.1f} s after returning to the foreground", double(now - foregroundAt) / 1e9) : std::string("no return from the background yet"),
+        s_logged == 100 ? "; further restores are not logged" : "");
 }
 
 void os::android::thread_hints::ApplyToCurrentThread(const char* name)
@@ -464,4 +622,13 @@ void os::android::thread_hints::ApplyToCurrentThread(const char* name)
     }
 
     ApplyByName(gettid(), name);
+}
+
+std::string os::android::thread_hints::ThreadUclamp(pid_t tid)
+{
+    SchedAttr attr{};
+    if (tid <= 0 || syscall(__NR_sched_getattr, tid, &attr, sizeof(attr), 0) != 0 || attr.size < sizeof(attr))
+        return "n/a";
+
+    return fmt::format("{}/{}", attr.schedUtilMin, attr.schedUtilMax);
 }

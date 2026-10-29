@@ -6,13 +6,15 @@ param(
     [string]$BuildDir = '',
     [string]$BuildType = 'Release',
     # XenonRecomp optimizations. The default is the tested set (group 1, keeps CTR/XER/CR and the
-    # reservation in locals). Pass -CMakeArgs @() for the conservative upstream set (all OFF).
+    # reservation in locals, plus merged FPCR rounding overrides since v0.2.0). Pass -CMakeArgs @()
+    # for the conservative upstream set (all OFF).
     # Changing the set regenerates all recompiled code; use a separate -BuildDir per set.
     [string[]]$CMakeArgs = @(
         '-DMARATHON_RECOMP_PPC_CTR_AS_LOCAL=ON',
         '-DMARATHON_RECOMP_PPC_XER_AS_LOCAL=ON',
         '-DMARATHON_RECOMP_PPC_RESERVED_AS_LOCAL=ON',
-        '-DMARATHON_RECOMP_PPC_CR_AS_LOCAL=ON'
+        '-DMARATHON_RECOMP_PPC_CR_AS_LOCAL=ON',
+        '-DMARATHON_RECOMP_PPC_MERGE_ROUNDING=ON'
     ),
     [switch]$Build
 )

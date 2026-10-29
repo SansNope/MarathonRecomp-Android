@@ -1,0 +1,178 @@
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index 5bf2052..ae5f576 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -433,6 +433,24 @@ bool Recompiler::Recompile(
+             }
+         };
+ 
++    // Round toward zero for VMSUM3FP128/VMSUM4FP128. A pending override is restored by Recompile()
++    // before any instruction that may observe the rounding mode, and at labels.
++    auto printOverrideRoundTowardZero = [&](CSRState stateBeforeFlushMode)
++        {
++            // Setting the flush mode rewrites the host control register from the guest state,
++            // which drops a pending override.
++            if (!config.mergeRoundingOverrides || !roundingOverridden || csrState != stateBeforeFlushMode)
++                println("\tctx.fpscr.overrideRoundingMode(PPC_ROUND_TOWARD_ZERO);");
++
++            roundingOverridden = config.mergeRoundingOverrides;
++        };
++
++    auto printRestoreRoundingMode = [&]()
++        {
++            if (!config.mergeRoundingOverrides)
++                println("\tctx.fpscr.restoreRoundingMode();");
++        };
++
+     auto midAsmHook = config.midAsmHooks.find(base);
+ 
+     auto printMidAsmHook = [&]()
+@@ -1956,19 +1974,25 @@ bool Recompiler::Recompile(
+         break;
+ 
+     case PPC_INST_VMSUM3FP128:
++    {
+         // NOTE: accounting for full vector reversal here. should dot product yzw instead of xyz
++        const CSRState stateBeforeFlushMode = csrState;
+         printSetFlushMode(true);
+-        println("\tctx.fpscr.overrideRoundingMode(PPC_ROUND_TOWARD_ZERO);");
++        printOverrideRoundTowardZero(stateBeforeFlushMode);
+         println("\tsimde_mm_store_ps({}.f32, simde_mm_dp_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32), 0xEF));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+-        println("\tctx.fpscr.restoreRoundingMode();");
++        printRestoreRoundingMode();
+         break;
++    }
+ 
+     case PPC_INST_VMSUM4FP128:
++    {
++        const CSRState stateBeforeFlushMode = csrState;
+         printSetFlushMode(true);
+-        println("\tctx.fpscr.overrideRoundingMode(PPC_ROUND_TOWARD_ZERO);");
++        printOverrideRoundTowardZero(stateBeforeFlushMode);
+         println("\tsimde_mm_store_ps({}.f32, simde_mm_dp_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32), 0xFF));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+-        println("\tctx.fpscr.restoreRoundingMode();");
++        printRestoreRoundingMode();
+         break;
++    }
+ 
+     case PPC_INST_VMULFP128:
+         printSetFlushMode(true);
+@@ -2577,11 +2601,59 @@ bool Recompiler::Recompile(const Function& fn)
+     tempString.clear();
+     std::swap(out, tempString);
+ 
++    roundingOverridden = false;
++
++    // Instructions whose generated code has no floating-point arithmetic, control flow or call, so
++    // a pending round-toward-zero override may stay in effect across them.
++    auto keepsRoundingOverride = [&](const ppc_insn& insn)
++        {
++            if (insn.opcode == nullptr || config.midAsmHooks.find(base) != config.midAsmHooks.end())
++                return false;
++
++            switch (insn.opcode->id)
++            {
++            case PPC_INST_VMSUM3FP128:
++            case PPC_INST_VMSUM4FP128:
++            case PPC_INST_LVX:
++            case PPC_INST_LVX128:
++            case PPC_INST_STVX:
++            case PPC_INST_STVX128:
++            case PPC_INST_VMRGHW:
++            case PPC_INST_VMRGHW128:
++            case PPC_INST_VMRGLW:
++            case PPC_INST_VMRGLW128:
++            case PPC_INST_VPERM128:
++            case PPC_INST_VSPLTW:
++            case PPC_INST_VSPLTW128:
++            case PPC_INST_ADDI:
++            case PPC_INST_LI:
++            case PPC_INST_MR:
++            case PPC_INST_LD:
++            case PPC_INST_STD:
++            case PPC_INST_LWZ:
++            case PPC_INST_STW:
++            case PPC_INST_NOP:
++                return true;
++            default:
++                return false;
++            }
++        };
++
++    auto flushRoundingOverride = [&]()
++        {
++            if (roundingOverridden)
++            {
++                println("\tctx.fpscr.restoreRoundingMode();");
++                roundingOverridden = false;
++            }
++        };
++
+     ppc_insn insn;
+     while (base < end)
+     {
+         if (labels.find(base) != labels.end())
+         {
++            flushRoundingOverride();
+             println("loc_{:X}:", base);
+ 
+             // Anyone could jump to this label so we wouldn't know what the CSR state would be.
+@@ -2593,6 +2665,9 @@ bool Recompiler::Recompile(const Function& fn)
+ 
+         ppc::Disassemble(data, 4, base, insn);
+ 
++        if (!keepsRoundingOverride(insn))
++            flushRoundingOverride();
++
+         if (insn.opcode == nullptr)
+         {
+             println("\t// {}", insn.op_str);
+@@ -2617,6 +2692,8 @@ bool Recompiler::Recompile(const Function& fn)
+         ++data;
+     }
+ 
++    flushRoundingOverride();
++
+ #if 0
+     if (insn.opcode == nullptr || (insn.opcode->id != PPC_INST_B && insn.opcode->id != PPC_INST_BCTR && insn.opcode->id != PPC_INST_BLR))
+         fmt::println("Function at {:X} ends prematurely with instruction {} at {:X}", fn.base, insn.opcode != nullptr ? insn.opcode->name : "INVALID", base - 4);
+diff --git a/XenonRecomp/recompiler.h b/XenonRecomp/recompiler.h
+index 8242db5..454421e 100644
+--- a/XenonRecomp/recompiler.h
++++ b/XenonRecomp/recompiler.h
+@@ -35,6 +35,11 @@ struct Recompiler
+     size_t cppFileIndex = 0;
+     RecompilerConfig config;
+ 
++    // With merge_rounding_overrides, a dot product's round-toward-zero override stays in effect
++    // across the following dot products and FP-free instructions of the same block, instead of
++    // being restored after each one.
++    bool roundingOverridden = false;
++
+     bool LoadConfig(const std::string_view& configFilePath);
+ 
+     template<class... Args>
+diff --git a/XenonRecomp/recompiler_config.cpp b/XenonRecomp/recompiler_config.cpp
+index 5fb35a3..228dbae 100644
+--- a/XenonRecomp/recompiler_config.cpp
++++ b/XenonRecomp/recompiler_config.cpp
+@@ -26,6 +26,7 @@ void RecompilerConfig::Load(const std::string_view& configFilePath)
+         crRegistersAsLocalVariables = main["cr_as_local"].value_or(false);
+         nonArgumentRegistersAsLocalVariables = main["non_argument_as_local"].value_or(false);
+         nonVolatileRegistersAsLocalVariables = main["non_volatile_as_local"].value_or(false);
++        mergeRoundingOverrides = main["merge_rounding_overrides"].value_or(false);
+ 
+         restGpr14Address = main["restgprlr_14_address"].value_or(0u);
+         saveGpr14Address = main["savegprlr_14_address"].value_or(0u);
+diff --git a/XenonRecomp/recompiler_config.h b/XenonRecomp/recompiler_config.h
+index 534e503..f333a9e 100644
+--- a/XenonRecomp/recompiler_config.h
++++ b/XenonRecomp/recompiler_config.h
+@@ -39,6 +39,7 @@ struct RecompilerConfig
+     bool crRegistersAsLocalVariables = false;
+     bool nonArgumentRegistersAsLocalVariables = false;
+     bool nonVolatileRegistersAsLocalVariables = false;
++    bool mergeRoundingOverrides = false;
+     uint32_t restGpr14Address = 0;
+     uint32_t saveGpr14Address = 0;
+     uint32_t restFpr14Address = 0;

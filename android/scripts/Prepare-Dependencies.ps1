@@ -1,6 +1,7 @@
 # Prepares everything the Android build needs besides the toolchain and your game files:
 #   1. git submodules (as pinned by this repository);
-#   2. the Android patch for thirdparty/plume (android/patches/plume);
+#   2. the Android patches for thirdparty/plume (android/patches/plume) and tools/XenonRecomp
+#      (android/patches/xenonrecomp);
 #   3. zlib 1.3.2 source for the Windows host tools (out/deps/zlib-1.3.2);
 #   4. a vcpkg checkout with the FFmpeg XMAFRAMES patch (out/deps/vcpkg-ffmpeg), the same way
 #      sonicnext-dev/ffmpeg-core builds its desktop prebuilts.
@@ -46,6 +47,18 @@ if (-not $SkipPlume) {
         Write-Output 'already applied'
     } else {
         Invoke-Native git @('-C', $plume, 'apply', '--whitespace=nowarn', $patch)
+        Write-Output 'applied'
+    }
+
+    # XenonRecomp: the merge_rounding_overrides option (MARATHON_RECOMP_PPC_MERGE_ROUNDING).
+    # Build-HostTools.ps1 has to be run again after this patch is applied for the first time.
+    Write-Output '== tools/XenonRecomp Android patch'
+    $xenon = Join-Path $repo 'tools\XenonRecomp'
+    $patch = Join-Path $repo 'android\patches\xenonrecomp\0001-merge-rounding-overrides.patch'
+    if (Test-Native git @('-C', $xenon, 'apply', '--reverse', '--check', $patch)) {
+        Write-Output 'already applied'
+    } else {
+        Invoke-Native git @('-C', $xenon, 'apply', '--whitespace=nowarn', $patch)
         Write-Output 'applied'
     }
 }

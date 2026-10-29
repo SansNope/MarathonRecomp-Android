@@ -8,6 +8,9 @@
 #include <user/config.h>
 #include <app.h>
 #include <exports.h>
+#ifdef __ANDROID__
+#include <os/android/main_thread_android.h>
+#endif
 
 constexpr double OVERLAY_DURATION = 5.0;
 
@@ -21,7 +24,11 @@ static std::thread::id g_mainThreadId = std::this_thread::get_id();
 
 static bool CanDequeueAchievement()
 {
+#ifdef __ANDROID__
+    return os::android::IsMainThread() && !AchievementOverlay::s_queue.empty();
+#else
     return std::this_thread::get_id() == g_mainThreadId && !AchievementOverlay::s_queue.empty();
+#endif
 }
 
 void AchievementOverlay::Draw()

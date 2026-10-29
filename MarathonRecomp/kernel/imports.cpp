@@ -14,12 +14,31 @@
 #include "xdm.h"
 #include <user/config.h>
 #include <os/logger.h>
+#include <os/android/guest_waits_android.h>
 
 #ifdef _WIN32
 #include <ntstatus.h>
 #endif
 
 std::unordered_map<uint32_t, uint32_t> g_handleDuplicates{};
+
+// Finite timeouts poll until the deadline: the atomic waits used for INFINITE take no timeout, and
+// the game rarely passes finite ones (none in gameplay on a POCO F5 in perf10).
+template<typename TTryAcquire>
+static uint32_t WaitUntilDeadline(uint32_t timeout, const TTryAcquire& tryAcquire)
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
+    while (true)
+    {
+        if (tryAcquire())
+            return STATUS_SUCCESS;
+
+        if (std::chrono::steady_clock::now() >= deadline)
+            return STATUS_TIMEOUT;
+
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+}
 
 struct Event final : KernelObject, HostObject<XKEVENT>
 {
@@ -56,7 +75,11 @@ struct Event final : KernelObject, HostObject<XKEVENT>
         {
             if (manualReset)
             {
-                signaled.wait(false);
+                if (!signaled)
+                {
+                    GUEST_WAIT_SCOPE_ON(Event, this);
+                    signaled.wait(false);
+                }
             }
             else
             {
@@ -66,13 +89,24 @@ struct Event final : KernelObject, HostObject<XKEVENT>
                     if (signaled.compare_exchange_weak(expected, false))
                         break;
 
+                    GUEST_WAIT_SCOPE_ON(Event, this);
                     signaled.wait(expected);
                 }
             }
         }
         else
         {
-            assert(false && "Unhandled timeout value.");
+            const uint32_t result = WaitUntilDeadline(timeout, [&]
+            {
+                if (manualReset)
+                    return signaled.load();
+
+                bool expected = true;
+                return signaled.compare_exchange_strong(expected, false);
+            });
+
+            GUEST_WAIT_TIMEOUT(Event, result == STATUS_TIMEOUT);
+            return result;
         }
 
         return STATUS_SUCCESS;
@@ -81,6 +115,7 @@ struct Event final : KernelObject, HostObject<XKEVENT>
     bool Set()
     {
         signaled = true;
+        GUEST_WAIT_SIGNAL(this);
 
         if (manualReset)
             signaled.notify_all();
@@ -140,6 +175,7 @@ struct Semaphore final : KernelObject, HostObject<XKSEMAPHORE>
                 }
                 else
                 {
+                    GUEST_WAIT_SCOPE_ON(Semaphore, this);
                     count.wait(0);
                 }
             }
@@ -148,8 +184,20 @@ struct Semaphore final : KernelObject, HostObject<XKSEMAPHORE>
         }
         else
         {
-            assert(false && "Unhandled timeout value.");
-            return STATUS_TIMEOUT;
+            const uint32_t result = WaitUntilDeadline(timeout, [&]
+            {
+                uint32_t currentCount = count.load();
+                while (currentCount != 0)
+                {
+                    if (count.compare_exchange_weak(currentCount, currentCount - 1))
+                        return true;
+                }
+
+                return false;
+            });
+
+            GUEST_WAIT_TIMEOUT(Semaphore, result == STATUS_TIMEOUT);
+            return result;
         }
     }
 
@@ -161,6 +209,7 @@ struct Semaphore final : KernelObject, HostObject<XKSEMAPHORE>
         assert(count + releaseCount <= maximumCount);
 
         count += releaseCount;
+        GUEST_WAIT_SIGNAL(this);
         count.notify_all();
     }
 };
@@ -627,9 +676,15 @@ uint32_t KeDelayExecutionThread(uint32_t WaitMode, bool Alertable, be<int64_t>* 
     Sleep(timeout);
 #else
     if (timeout == 0)
+    {
+        GUEST_WAIT_SCOPE(Yield);
         std::this_thread::yield();
+    }
     else
+    {
+        GUEST_WAIT_SCOPE(Sleep);
         std::this_thread::sleep_for(std::chrono::milliseconds(timeout));
+    }
 #endif
 
     return STATUS_SUCCESS;
@@ -782,6 +837,7 @@ void RtlEnterCriticalSection(XRTL_CRITICAL_SECTION* cs)
         }
 
         // printf("wait start %x\n", cs);
+        GUEST_WAIT_SCOPE(CriticalSection);
         owningThread.wait(previousOwner);
         // printf("wait end\n");
     }
@@ -849,6 +905,7 @@ void KfAcquireSpinLock(uint32_t* spinLock)
         if (spinLockRef.compare_exchange_weak(expected, g_ppcContext->r13.u32))
             break;
 
+        GUEST_WAIT_SCOPE(Yield);
         std::this_thread::yield();
     }
 }
@@ -896,6 +953,7 @@ void KeAcquireSpinLockAtRaisedIrql(uint32_t* spinLock)
         if (spinLockRef.compare_exchange_weak(expected, g_ppcContext->r13.u32))
             break;
 
+        GUEST_WAIT_SCOPE(Yield);
         std::this_thread::yield();
     }
 }
@@ -1094,17 +1152,17 @@ bool KeResetEvent(XKEVENT* pEvent)
 uint32_t KeWaitForSingleObject(XDISPATCHER_HEADER* Object, uint32_t WaitReason, uint32_t WaitMode, bool Alertable, be<int64_t>* Timeout)
 {
     const uint32_t timeout = GuestTimeoutToMilliseconds(Timeout);
-    assert(timeout == INFINITE);
+    uint32_t result;
 
     switch (Object->Type)
     {
         case 0:
         case 1:
-            QueryKernelObject<Event>(*Object)->Wait(timeout);
+            result = QueryKernelObject<Event>(*Object)->Wait(timeout);
             break;
 
         case 5:
-            QueryKernelObject<Semaphore>(*Object)->Wait(timeout);
+            result = QueryKernelObject<Semaphore>(*Object)->Wait(timeout);
             break;
 
         default:
@@ -1112,7 +1170,12 @@ uint32_t KeWaitForSingleObject(XDISPATCHER_HEADER* Object, uint32_t WaitReason, 
             return STATUS_TIMEOUT;
     }
 
-    return STATUS_SUCCESS;
+    if (timeout != INFINITE)
+    {
+        GUEST_WAIT_TIMEOUT(KeWaitSingle, result == STATUS_TIMEOUT);
+    }
+
+    return result;
 }
 
 static std::vector<size_t> g_tlsFreeIndices;
@@ -1675,8 +1738,53 @@ uint32_t KeWaitForMultipleObjects(uint32_t Count, xpointer<XDISPATCHER_HEADER>* 
 {
     // FIXME: This function is only accounting for events.
 
-    const uint64_t timeout = GuestTimeoutToMilliseconds(Timeout);
-    assert(timeout == INFINITE);
+    const uint32_t timeout = GuestTimeoutToMilliseconds(Timeout);
+
+    if (timeout != INFINITE)
+    {
+        thread_local std::vector<Event*> s_timedEvents;
+        s_timedEvents.resize(Count);
+
+        for (size_t i = 0; i < Count; i++)
+            s_timedEvents[i] = QueryKernelObject<Event>(*Objects[i]);
+
+        if (WaitType == 0) // Wait all: consume the events only once all of them are signalled.
+        {
+            return WaitUntilDeadline(timeout, [&]
+            {
+                for (Event* event : s_timedEvents)
+                {
+                    if (!event->signaled.load())
+                        return false;
+                }
+
+                for (Event* event : s_timedEvents)
+                {
+                    if (!event->manualReset)
+                        event->signaled = false;
+                }
+
+                return true;
+            });
+        }
+
+        size_t signalled = 0;
+        const uint32_t result = WaitUntilDeadline(timeout, [&]
+        {
+            for (size_t i = 0; i < Count; i++)
+            {
+                if (s_timedEvents[i]->Wait(0) == STATUS_SUCCESS)
+                {
+                    signalled = i;
+                    return true;
+                }
+            }
+
+            return false;
+        });
+
+        return result == STATUS_SUCCESS ? uint32_t(STATUS_WAIT_0 + signalled) : result;
+    }
 
     if (WaitType == 0) // Wait all
     {
@@ -1703,6 +1811,7 @@ uint32_t KeWaitForMultipleObjects(uint32_t Count, xpointer<XDISPATCHER_HEADER>* 
                 }
             }
 
+            GUEST_WAIT_SCOPE(Multiple);
             g_keSetEventGeneration.wait(generation);
         }
     }

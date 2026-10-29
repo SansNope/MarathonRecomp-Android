@@ -9,6 +9,7 @@
 #ifdef __ANDROID__
 #include <os/android/logger_android.h>
 #endif
+#include <os/android/guest_waits_android.h>
 #include "ppc_context.h"
 
 constexpr size_t PCR_SIZE = 0xAB0;
@@ -139,6 +140,7 @@ uint32_t GuestThreadHandle::Wait(uint32_t timeout)
 {
     if (timeout == INFINITE || isFinished.load()) // HACK(1): isFinished
     {
+        GUEST_WAIT_SCOPE(Thread);
 #ifdef USE_PTHREAD
         pthread_join(thread, nullptr);
 #else
@@ -162,15 +164,24 @@ uint32_t GuestThreadHandle::Wait(uint32_t timeout)
 #ifdef USE_PTHREAD
         pthread_join(thread, nullptr);
 #else
-        auto start = std::chrono::steady_clock::now();
-        while (thread.joinable())
+        // A finished thread stays joinable until joined, so poll isFinished rather than joinable().
+        GUEST_WAIT_SCOPE(Thread);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
+        while (!isFinished.load())
         {
-            auto elapsed = std::chrono::steady_clock::now() - start;
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() >= timeout)
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                GUEST_WAIT_TIMEOUT(Thread, true);
                 return STATUS_TIMEOUT;
+            }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
+
+        if (thread.joinable())
+            thread.join();
+
+        GUEST_WAIT_TIMEOUT(Thread, false);
 #endif
 
         return STATUS_WAIT_0;

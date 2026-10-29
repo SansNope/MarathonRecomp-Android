@@ -46,6 +46,12 @@
 #include <os/android/logger_android.h>
 #include <os/android/storage_android.h>
 #include <os/android/frame_diagnostics.h>
+#include <os/android/sampling_profiler_android.h>
+#include <os/android/guest_waits_android.h>
+#include <os/android/texture_cache_android.h>
+#include <os/android/overlay_android.h>
+#include <os/android/performance_hint_android.h>
+#include <os/android/thread_hints_android.h>
 #include <ui/touch_controls.h>
 #include <dlfcn.h>
 #include <time.h>
@@ -327,10 +333,147 @@ static Profiler g_presentWaitProfiler;
 static Profiler g_swapChainAcquireProfiler;
 
 #ifdef __ANDROID__
+// Pipeline compilations, logged as [pso] with the frame diagnostics: the render thread compiles a
+// missing pipeline while the frame waits (a hitch when it happens during gameplay); the compiler
+// threads compile during loading and precompilation.
+static thread_local bool g_isRenderThread = false;
+static std::atomic<uint32_t> g_psoGameplayCount{ 0 }, g_psoOtherCount{ 0 };
+static std::atomic<uint64_t> g_psoGameplayMicroseconds{ 0 }, g_psoOtherMicroseconds{ 0 }, g_psoGameplayMaxMicroseconds{ 0 };
+static std::atomic<uint32_t> g_pipelinesSinceCacheSave{ 0 };
+// GPU time per physical render pass, from a timestamp Plume writes before each pass begins (with
+// perf_capture.enabled). Passes are grouped by their framebuffer (size, color attachments, depth);
+// logged as [gpu-passes] about every 10 seconds with the frame's draw, pass and barrier counts.
+struct GpuPassDiagnostics
+{
+    struct Target
+    {
+        uint64_t key = 0;
+        double ms = 0.0;
+        uint32_t passes = 0;
+    };
+
+    std::mutex mutex;
+    std::vector<Target> targets;
+    uint32_t frames = 0;
+    double totalMs = 0.0, beforeFirstPassMs = 0.0;
+    uint64_t draws = 0, passes = 0, barrierCalls = 0, barrierPassBreaks = 0, splitPasses = 0, clearLoadPasses = 0, truncatedFrames = 0;
+    // Every third summary (~30 s) the next frame's passes are listed one by one.
+    uint32_t summaries = 0;
+    bool frameListRequested = false;
+    std::string frameList;
+
+    static const char* Label(uint8_t label)
+    {
+        switch (label)
+        {
+        case 1: return "imgui";
+        case 2: return "gamma";
+        default: return "game";
+        }
+    }
+
+    static char EndReason(RenderPassEndReason reason)
+    {
+        switch (reason)
+        {
+        case RenderPassEndReason::Barrier: return 'b';
+        case RenderPassEndReason::Framebuffer: return 'f';
+        case RenderPassEndReason::End: return 'e';
+        case RenderPassEndReason::Open: return '?';
+        default: return 'o';
+        }
+    }
+
+    static uint64_t Key(const RenderPassTimestampInfo& info)
+    {
+        return (uint64_t(info.width) << 32) | (uint64_t(info.height) << 8) | (uint64_t(info.colorAttachmentCount) << 1) | (info.depthAttachment ? 1 : 0);
+    }
+
+    // `timestamps` holds one per recorded pass plus the end of the frame, in nanoseconds.
+    void AddFrame(const std::vector<RenderPassTimestampInfo>& infos, const uint64_t* timestamps, uint64_t frameStart, uint64_t frameEnd,
+        const RenderCommandListStats& stats, bool truncated)
+    {
+        std::lock_guard lock(mutex);
+        ++frames;
+        totalMs += double(frameEnd - frameStart) / 1e6;
+        if (!infos.empty() && timestamps[0] >= frameStart)
+            beforeFirstPassMs += double(timestamps[0] - frameStart) / 1e6;
+
+        for (size_t i = 0; i < infos.size(); i++)
+        {
+            const double ms = timestamps[i + 1] >= timestamps[i] ? double(timestamps[i + 1] - timestamps[i]) / 1e6 : 0.0;
+            const uint64_t key = Key(infos[i]);
+            auto target = std::find_if(targets.begin(), targets.end(), [&](const Target& t) { return t.key == key; });
+            if (target == targets.end())
+                target = targets.insert(targets.end(), Target{ key });
+            target->ms += ms;
+            target->passes++;
+        }
+
+        draws += stats.draws;
+        passes += stats.renderPasses;
+        barrierCalls += stats.barrierCalls;
+        barrierPassBreaks += stats.barrierPassBreaks;
+        splitPasses += stats.splitPasses;
+        clearLoadPasses += stats.clearLoadPasses;
+        truncatedFrames += truncated ? 1 : 0;
+
+        if (frameListRequested && !infos.empty())
+        {
+            frameListRequested = false;
+            frameList = fmt::format("{} passes ({} recorded), {:.2f} ms GPU:", stats.renderPasses, infos.size(), double(frameEnd - frameStart) / 1e6);
+            for (size_t i = 0; i < infos.size(); i++)
+            {
+                const auto& info = infos[i];
+                const double ms = timestamps[i + 1] >= timestamps[i] ? double(timestamps[i + 1] - timestamps[i]) / 1e6 : 0.0;
+                frameList += fmt::format(" #{} {}x{} c{}{} {} d{}{}{} end={} {:.2f};", i, info.width, info.height, info.colorAttachmentCount,
+                    info.depthAttachment ? "+d" : "", Label(info.label), info.draws, info.clearedAtStart ? " clr" : "", info.split ? " split" : "",
+                    EndReason(info.endReason), ms);
+            }
+        }
+    }
+
+    // The pass list of a frame requested by TakeSummary; empty when none is ready.
+    std::string TakeFrameList()
+    {
+        std::lock_guard lock(mutex);
+        return std::exchange(frameList, std::string());
+    }
+
+    std::string TakeSummary(size_t count)
+    {
+        std::lock_guard lock(mutex);
+        if (frames == 0)
+            return {};
+
+        std::sort(targets.begin(), targets.end(), [](const Target& a, const Target& b) { return a.ms > b.ms; });
+        const double n = double(frames);
+        if (++summaries % 3 == 1)
+            frameListRequested = true;
+
+        std::string text = fmt::format("{} frames: per frame {:.2f} ms GPU, {:.1f} passes ({:.1f} split by a barrier on the same target, {:.1f} cleared on load), {:.0f} draws, {:.1f} barrier calls ({:.1f} ending a pass); before the first pass {:.2f} ms{}; by target:",
+            frames, totalMs / n, double(passes) / n, double(splitPasses) / n, double(clearLoadPasses) / n, double(draws) / n, double(barrierCalls) / n, double(barrierPassBreaks) / n, beforeFirstPassMs / n,
+            truncatedFrames ? fmt::format(", {} frames had more passes than recorded", truncatedFrames) : std::string());
+        for (size_t i = 0; i < targets.size() && i < count; i++)
+        {
+            const Target& target = targets[i];
+            text += fmt::format(" {}{}x{} c{}{} {:.2f} ms ({:.1f} passes)", i ? ", " : "", uint32_t(target.key >> 32), uint32_t((target.key >> 8) & 0xFFFFFF),
+                uint32_t((target.key >> 1) & 0x7F), (target.key & 1) ? "+d" : "", target.ms / n, double(target.passes) / n);
+        }
+
+        targets.clear();
+        frames = 0;
+        totalMs = beforeFirstPassMs = 0.0;
+        draws = passes = barrierCalls = barrierPassBreaks = splitPasses = clearLoadPasses = truncatedFrames = 0;
+        return text;
+    }
+};
+
+static GpuPassDiagnostics g_gpuPassDiagnostics;
+
 // Diagnostics. No settings, GPU work, affinity or pacing are changed.
-// <game root>/perf_capture.enabled writes a summary every two seconds to log.txt. The first
-// launch creates the marker (remembered by .perf_capture_default) so testers' logs contain
-// timings by default; deleting it disables the summary and it is not created again.
+// <game root>/perf_capture.enabled (a launcher switch, off by default) writes a summary every two
+// seconds to log.txt.
 struct AndroidFrameDiagnostics
 {
     using Clock = std::chrono::steady_clock;
@@ -341,8 +484,13 @@ struct AndroidFrameDiagnostics
     double renderWait = 0.0, present = 0.0, fence = 0.0, acquire = 0.0, pacing = 0.0;
     double presentWait = 0.0, updateWall = 0.0, updateCpu = 0.0;
     double pendingUpdateWall = 0.0, pendingUpdateCpu = 0.0, updateStartCpu = 0.0;
+    // Game time (App::s_deltaTime per document update) against wall time: below 1 the game runs slow.
+    double gameTime = 0.0, gameDeltaMin = 0.0, gameDeltaMax = 0.0;
+    uint32_t gameUpdates = 0;
     Clock::time_point updateStart{};
     double gpu = 0.0, gpuMax = 0.0;
+    // Frames and [perf] windows since the last [waits] line (every 5 windows, ~10 s).
+    uint32_t waitFrames = 0, waitWindows = 0;
     bool enabled = false;
 
     static double CpuMilliseconds()
@@ -359,20 +507,7 @@ struct AndroidFrameDiagnostics
 
     void Begin()
     {
-        static const bool requested = []
-        {
-            std::error_code error;
-            const std::filesystem::path& root = os::android::GetDataRoot();
-            if (!std::filesystem::exists(root / ".perf_capture_default", error))
-            {
-                if (!std::filesystem::exists(root / "perf_capture.enabled", error))
-                    std::ofstream(root / "perf_capture.enabled").close();
-                std::ofstream(root / ".perf_capture_default").close();
-            }
-
-            return std::filesystem::exists(root / "perf_capture.enabled", error);
-        }();
-        enabled = requested;
+        enabled = os::android::perf::IsCaptureRequested();
         if (!enabled)
             return;
         entry = Clock::now();
@@ -415,10 +550,51 @@ struct AndroidFrameDiagnostics
         if (count && end - windowStart >= std::chrono::seconds(2))
         {
             const double n = double(count);
-            LOGFN("[perf] frames={} fps={:.2f} frame_ms={:.3f} main_cpu_ms={:.3f} guest_wall_ms={:.3f} guest_cpu_ms={:.3f} render_wait_ms={:.3f} present_ms={:.3f} fence_ms={:.3f} acquire_ms={:.3f} pacing_ms={:.3f} gpu_ms={:.3f} gpu_max_ms={:.3f} cpu={} scale={:.3f} present_wait_ms={:.3f} doc_update_wall_ms={:.3f} doc_update_cpu_ms={:.3f}",
+            LOGFN("[perf] frames={} fps={:.2f} frame_ms={:.3f} main_cpu_ms={:.3f} guest_wall_ms={:.3f} guest_cpu_ms={:.3f} render_wait_ms={:.3f} present_ms={:.3f} fence_ms={:.3f} acquire_ms={:.3f} pacing_ms={:.3f} gpu_ms={:.3f} gpu_max_ms={:.3f} cpu={} render_cpu={} mhz={} scale={:.3f} present_wait_ms={:.3f} doc_update_wall_ms={:.3f} doc_update_cpu_ms={:.3f} fps_cap={} vframe={} game_speed={:.3f} game_dt_ms={:.2f}..{:.2f} adpf={} uclamp={} render_uclamp={} waits_ms={}",
                 count, 1000.0 * n / frame, frame / n, cpu / n, guest / n, guestCpu / n,
                 renderWait / n, present / n, fence / n, acquire / n, pacing / n, gpu / n,
-                gpuMax, sched_getcpu(), float(Config::ResolutionScale), presentWait / n, updateWall / n, updateCpu / n);
+                gpuMax, sched_getcpu(), os::android::perf::ThreadCore(os::android::hint::GetThread(os::android::hint::Role::Render)),
+                os::android::perf::ClusterClocks(), float(Config::ResolutionScale), presentWait / n, updateWall / n, updateCpu / n,
+                int32_t(Config::FPS), Config::FPS != 60 ? 1 : 0, 1000.0 * gameTime / frame, 1000.0 * gameDeltaMin, 1000.0 * gameDeltaMax, os::android::hint::GetStatus(),
+                os::android::thread_hints::ThreadUclamp(os::android::hint::GetThread(os::android::hint::Role::Guest)),
+                os::android::thread_hints::ThreadUclamp(os::android::hint::GetThread(os::android::hint::Role::Render)),
+                os::android::waits::TakeFrameSummary(count));
+            waitFrames += count;
+            if (++waitWindows >= 5)
+            {
+                const std::string callers = os::android::waits::TakeTopCallers(waitFrames, 8);
+                if (!callers.empty())
+                    LOGFN("[waits] guest main thread, {} frames: {}", waitFrames, callers);
+                const std::string wakers = os::android::waits::TakeWakers(waitFrames, 6);
+                if (!wakers.empty())
+                    LOGFN("[wakers] guest main thread, {} frames, by signalling thread: {}", waitFrames, wakers);
+                const std::string timeouts = os::android::waits::TakeTimeouts();
+                if (!timeouts.empty())
+                    LOGFN("[waits] finite timeouts on all threads: {}", timeouts);
+                const std::string gpuPasses = g_gpuPassDiagnostics.TakeSummary(8);
+                if (!gpuPasses.empty())
+                    LOGFN("[gpu-passes] {}", gpuPasses);
+                const std::string gpuFrame = g_gpuPassDiagnostics.TakeFrameList();
+                if (!gpuFrame.empty())
+                    LOGFN("[gpu-frame] {}", gpuFrame);
+                const std::string textureCache = os::android::texture_cache::TakeStats();
+                if (!textureCache.empty())
+                    LOGFN("[texture-cache] {}", textureCache);
+                waitFrames = waitWindows = 0;
+            }
+            gameTime = gameDeltaMin = gameDeltaMax = 0.0;
+            gameUpdates = 0;
+
+            const uint32_t psoGameplay = g_psoGameplayCount.exchange(0);
+            const uint32_t psoOther = g_psoOtherCount.exchange(0);
+            const uint64_t psoGameplayUs = g_psoGameplayMicroseconds.exchange(0);
+            const uint64_t psoOtherUs = g_psoOtherMicroseconds.exchange(0);
+            const uint64_t psoGameplayMaxUs = g_psoGameplayMaxMicroseconds.exchange(0);
+            if (psoGameplay != 0 || psoOther != 0)
+            {
+                LOGFN("[pso] render thread during gameplay: {} pipelines, {:.1f} ms (max {:.1f} ms); loading/precompilation: {} pipelines, {:.1f} ms",
+                    psoGameplay, psoGameplayUs / 1000.0, psoGameplayMaxUs / 1000.0, psoOther, psoOtherUs / 1000.0);
+            }
             count = 0;
             frame = cpu = guest = guestCpu = renderWait = present = fence = acquire = pacing = gpu = gpuMax = 0.0;
             presentWait = updateWall = updateCpu = 0.0;
@@ -446,6 +622,11 @@ void os::android::perf::EndDocUpdate()
         return;
     diagnostics.pendingUpdateWall += AndroidFrameDiagnostics::Milliseconds(diagnostics.updateStart, AndroidFrameDiagnostics::Clock::now());
     diagnostics.pendingUpdateCpu += AndroidFrameDiagnostics::CpuMilliseconds() - diagnostics.updateStartCpu;
+    const double delta = App::s_deltaTime;
+    diagnostics.gameTime += delta;
+    diagnostics.gameDeltaMin = diagnostics.gameUpdates ? std::min(diagnostics.gameDeltaMin, delta) : delta;
+    diagnostics.gameDeltaMax = diagnostics.gameUpdates ? std::max(diagnostics.gameDeltaMax, delta) : delta;
+    diagnostics.gameUpdates++;
     diagnostics.updateStart = {};
 }
 #endif
@@ -477,6 +658,11 @@ static std::unique_ptr<RenderCommandQueue> g_queue;
 static std::unique_ptr<RenderCommandList> g_commandLists[NUM_FRAMES];
 static std::unique_ptr<RenderCommandFence> g_commandFences[NUM_FRAMES];
 static std::unique_ptr<RenderQueryPool> g_queryPools[NUM_FRAMES];
+#ifdef __ANDROID__
+// Per-pass GPU timestamps (GpuPassDiagnostics); the last query of a frame marks its end.
+static constexpr uint32_t NUM_PASS_QUERIES = 160;
+static std::unique_ptr<RenderQueryPool> g_passQueryPools[NUM_FRAMES];
+#endif
 static bool g_commandListStates[NUM_FRAMES];
 
 static Mutex g_copyMutex;
@@ -2407,7 +2593,7 @@ static void CheckSwapChain()
         }
         else
         {
-            LOGF("Swap chain (re)created: {}x{}, pre-rotation {} degrees.", g_swapChain->getWidth(), g_swapChain->getHeight(), g_swapChain->getPreRotation());
+            LOGF("Swap chain (re)created: {}x{}, pre-rotation {} degrees, {} images.", g_swapChain->getWidth(), g_swapChain->getHeight(), g_swapChain->getPreRotation(), g_swapChain->getTextureCount());
         }
 #endif
     }
@@ -2497,6 +2683,13 @@ static void BeginCommandList()
     commandList->begin();
     commandList->resetQueryPool(g_queryPools[g_frame].get(), 0, NUM_QUERIES);
     commandList->writeTimestamp(g_queryPools[g_frame].get(), 0);
+#ifdef __ANDROID__
+    if (g_passQueryPools[g_frame] != nullptr)
+    {
+        commandList->resetQueryPool(g_passQueryPools[g_frame].get(), 0, NUM_PASS_QUERIES);
+        commandList->setRenderPassTimestamps(g_passQueryPools[g_frame].get(), 0, NUM_PASS_QUERIES - 1);
+    }
+#endif
     commandList->setGraphicsPipelineLayout(g_pipelineLayout.get());
     commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
     commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 1);
@@ -2508,6 +2701,172 @@ static void BeginCommandList()
     g_readyForCommands = true;
     g_readyForCommands.notify_one();
 }
+
+#ifdef __ANDROID__
+// Vulkan pipeline cache in <game root>/cache/pipeline_cache.bin: pipelines compiled in one session
+// are cheap in the next, which shortens the precompilation at startup and the first use of an
+// effect. Saved by a background thread 30 s after new pipelines appeared and when the app goes
+// to the background. pipeline_cache.disabled turns it off. pipeline_cache.loading is written
+// before the data reaches the driver and removed once the game has run 30 s with it; if it is
+// still there at the next launch (a crash, possibly in the driver on that data), the cache is
+// deleted instead of loaded.
+static std::mutex g_pipelineCacheSaveMutex;
+static std::condition_variable g_pipelineCacheSaveCondition;
+static bool g_pipelineCacheSaveRequested = false;
+
+static void SavePipelineCache(const char* reason)
+{
+    const auto start = std::chrono::steady_clock::now();
+    std::vector<uint8_t> data;
+    if (!g_device->getPipelineCacheData(data))
+    {
+        LOGFN_WARNING("Pipeline cache: nothing to save ({}).", reason);
+        return;
+    }
+
+    std::error_code error;
+    const auto directory = os::android::GetDataRoot() / "cache";
+    std::filesystem::create_directories(directory, error);
+    const auto path = directory / "pipeline_cache.bin";
+    const auto temporary = directory / "pipeline_cache.bin.tmp";
+    {
+        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+        if (!file)
+        {
+            LOGFN_WARNING("Pipeline cache: writing {} failed ({}).", temporary.string(), reason);
+            return;
+        }
+    }
+    std::filesystem::rename(temporary, path, error);
+    if (error)
+    {
+        LOGFN_WARNING("Pipeline cache: renaming to {} failed: {} ({}).", path.string(), error.message(), reason);
+        return;
+    }
+
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    LOGFN("Pipeline cache: saved {:.1f} MB in {:.0f} ms ({}).", data.size() / (1024.0 * 1024.0), ms, reason);
+}
+
+// The activity's pause and resume reach SDL only while the main thread pumps events, and the
+// game then waits inside SDL_PumpEvents until the resume; logged so testers' logs show it.
+static bool SDLCALL OnLifecycleEvent(void*, SDL_Event* event)
+{
+    static std::chrono::steady_clock::time_point s_backgroundSince;
+    if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND)
+    {
+        s_backgroundSince = std::chrono::steady_clock::now();
+        LOGN("App lifecycle: entering the background, the game is paused until it returns.");
+    }
+    else if (event->type == SDL_EVENT_DID_ENTER_FOREGROUND)
+    {
+        LOGFN("App lifecycle: back in the foreground after {:.1f} s.",
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - s_backgroundSince).count());
+    }
+
+    return true;
+}
+
+static bool SDLCALL OnPipelineCacheEvent(void*, SDL_Event* event)
+{
+    if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND || event->type == SDL_EVENT_DID_ENTER_BACKGROUND)
+    {
+        std::lock_guard lock(g_pipelineCacheSaveMutex);
+        g_pipelineCacheSaveRequested = true;
+        g_pipelineCacheSaveCondition.notify_one();
+    }
+
+    return true;
+}
+
+static void PipelineCacheSaverThread(std::filesystem::path loadingMarker)
+{
+    pthread_setname_np(pthread_self(), "PipelineCacheIO");
+    bool first = true;
+    while (true)
+    {
+        bool requested;
+        {
+            std::unique_lock lock(g_pipelineCacheSaveMutex);
+            g_pipelineCacheSaveCondition.wait_for(lock, std::chrono::seconds(30), [] { return g_pipelineCacheSaveRequested; });
+            requested = g_pipelineCacheSaveRequested;
+            g_pipelineCacheSaveRequested = false;
+        }
+
+        if (first && !loadingMarker.empty())
+        {
+            std::error_code error;
+            std::filesystem::remove(loadingMarker, error);
+        }
+        first = false;
+
+        if (g_pipelinesSinceCacheSave.exchange(0) != 0)
+            SavePipelineCache(requested ? "going to the background" : "new pipelines");
+    }
+}
+
+static void LoadPipelineCache()
+{
+    std::error_code error;
+    const auto& root = os::android::GetDataRoot();
+    if (std::filesystem::exists(root / "pipeline_cache.disabled", error))
+    {
+        LOG("Pipeline cache: disabled by pipeline_cache.disabled.");
+        return;
+    }
+
+    const auto directory = root / "cache";
+    const auto path = directory / "pipeline_cache.bin";
+    const auto loadingMarker = directory / "pipeline_cache.loading";
+    std::filesystem::create_directories(directory, error);
+
+    std::vector<uint8_t> data;
+    if (std::filesystem::exists(loadingMarker, error))
+    {
+        LOG_WARNING("Pipeline cache: the previous launch ended before the cache was confirmed; deleting it and starting empty.");
+        std::filesystem::remove(path, error);
+        std::filesystem::remove(loadingMarker, error);
+    }
+    else
+    {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (file)
+        {
+            data.resize(size_t(file.tellg()));
+            file.seekg(0);
+            file.read(reinterpret_cast<char*>(data.data()), std::streamsize(data.size()));
+            if (!file)
+                data.clear();
+        }
+    }
+
+    if (!data.empty())
+        std::ofstream(loadingMarker).close();
+
+    const auto start = std::chrono::steady_clock::now();
+    const bool accepted = g_device->setPipelineCacheData(data.empty() ? nullptr : data.data(), data.size());
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    if (data.empty())
+        LOG("Pipeline cache: no saved cache, starting empty.");
+    else if (accepted)
+        LOGFN("Pipeline cache: loaded {:.1f} MB in {:.0f} ms.", data.size() / (1024.0 * 1024.0), ms);
+    else
+        LOGFN_WARNING("Pipeline cache: {:.1f} MB from another device or driver ignored, starting empty.", data.size() / (1024.0 * 1024.0));
+
+    if (data.empty() || !accepted)
+    {
+        std::filesystem::remove(loadingMarker, error);
+        std::thread(PipelineCacheSaverThread, std::filesystem::path()).detach();
+    }
+    else
+    {
+        std::thread(PipelineCacheSaverThread, loadingMarker).detach();
+    }
+
+    SDL_AddEventWatch(OnPipelineCacheEvent, nullptr);
+}
+#endif
 
 template<typename T>
 static void ApplyLowEndDefault(ConfigDef<T> &configDef, T newDefault, bool &changed)
@@ -2825,6 +3184,14 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     for (auto& queryPool : g_queryPools)
         queryPool = g_device->createQueryPool(NUM_QUERIES);
 
+#ifdef __ANDROID__
+    if (os::android::perf::IsCaptureRequested())
+    {
+        for (auto& queryPool : g_passQueryPools)
+            queryPool = g_device->createQueryPool(NUM_PASS_QUERIES);
+    }
+#endif
+
     g_copyQueue = g_device->createCommandQueue(RenderCommandListType::COPY);
     g_copyCommandList = g_copyQueue->createCommandList();
     g_copyCommandFence = g_device->createCommandFence();
@@ -2863,6 +3230,21 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         break;
     }
 
+#ifdef __ANDROID__
+    // Experiment (a launcher switch, off by default): three images under Auto, which asks for two
+    // without presentWait (Pixel 7 Pro, SM7475). Compare acquire_ms and frame times in one scene.
+    {
+        std::error_code error;
+        const bool tripleBuffering = Config::TripleBuffering == ETripleBuffering::Auto &&
+            std::filesystem::exists(os::android::GetDataRoot() / "triple_buffering.enabled", error);
+        if (tripleBuffering)
+            bufferCount = 3;
+        LOGF("Swap chain: requesting {} images (TripleBuffering {}{}, presentWait {}, MaxFrameLatency {}).", bufferCount,
+            Config::TripleBuffering == ETripleBuffering::Auto ? "Auto" : Config::TripleBuffering == ETripleBuffering::On ? "On" : "Off",
+            tripleBuffering ? ", triple_buffering.enabled" : "", g_device->getCapabilities().presentWait, uint32_t(Config::MaxFrameLatency));
+    }
+#endif
+
     RenderSwapChainDesc swapChainDesc;
     swapChainDesc.renderWindow = GameWindow::s_renderWindow;
     swapChainDesc.textureCount = bufferCount;
@@ -2882,6 +3264,16 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         g_swapChain->setPreRotationEnabled(!preRotationDisabled);
         LOGF("Swap chain pre-rotation {}.", preRotationDisabled ? "disabled by prerotation.disabled" : "enabled");
     }
+
+    // Tile-friendly render passes: clears become load-op clears, barriers get masks from the
+    // texture layouts. On by default; render_pass_optimizations.disabled (a launcher switch)
+    // restores the previous behaviour.
+    {
+        std::error_code error;
+        const bool disabled = std::filesystem::exists(os::android::GetDataRoot() / "render_pass_optimizations.disabled", error);
+        g_device->setRenderPassOptimizations(!disabled, !disabled);
+        LOGF("Render pass optimizations {}.", disabled ? "disabled by render_pass_optimizations.disabled" : "enabled (clear on load, precise barriers)");
+    }
 #endif
 
     g_swapChainValid = !g_swapChain->needsResize();
@@ -2900,6 +3292,11 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     
     for (auto& renderSemaphore : g_renderSemaphores)
         renderSemaphore = g_device->createCommandSemaphore();
+
+#ifdef __ANDROID__
+    SDL_AddEventWatch(OnLifecycleEvent, nullptr);
+    LoadPipelineCache();
+#endif
 
     RenderPipelineLayoutBuilder pipelineLayoutBuilder;
     pipelineLayoutBuilder.begin(false, true);
@@ -3733,6 +4130,130 @@ static void DrawFPS()
     drawList->AddText(font, fontSize, textPos, IM_COL32_WHITE, fmt.c_str());
 }
 
+#ifdef __ANDROID__
+// Performance overlay (overlay.enabled): frame and GPU times from the renderer's profilers, the
+// rest sampled by os::android::overlay. Replaces the plain FPS counter while enabled.
+static void DrawAndroidOverlay()
+{
+    static double updateTime = ImGui::GetTime();
+    static double frameSum = 0.0, gpuSum = 0.0, frameWorst = 0.0;
+    static uint32_t frameCount = 0;
+    static double fps = 0.0, frameMs = 0.0, gpuMs = 0.0, worstMs = 0.0;
+    static float history[120]{};
+    static size_t historyIndex = 0;
+
+    const double frame = g_presentProfiler.value.load();
+    frameSum += frame;
+    gpuSum += g_gpuFrameProfiler.value.load();
+    frameWorst = std::max(frameWorst, frame);
+    frameCount++;
+    history[historyIndex] = float(frame);
+    historyIndex = (historyIndex + 1) % std::size(history);
+
+    const double time = ImGui::GetTime();
+    if (time - updateTime >= 0.5 && frameCount != 0)
+    {
+        frameMs = frameSum / frameCount;
+        fps = 1000.0 / std::max(frameMs, 0.001);
+        gpuMs = gpuSum / frameCount;
+        worstMs = frameWorst;
+        frameSum = gpuSum = frameWorst = 0.0;
+        frameCount = 0;
+        updateTime = time;
+    }
+
+    const auto stats = os::android::overlay::GetStats();
+    const auto& device = g_device->getDescription();
+    std::vector<std::string> lines;
+
+    const int32_t cap = Config::FPS;
+    lines.push_back(fmt::format("FPS {:.1f}   {:.1f} ms (worst {:.1f})   cap {}", fps, frameMs, worstMs,
+        cap >= FPS_MAX ? std::string("off") : std::to_string(cap)));
+
+    std::string gpu = fmt::format("GPU {:.1f} ms (~{:.0f}% of frame)", gpuMs, frameMs > 0.0 ? std::min(100.0, 100.0 * gpuMs / frameMs) : 0.0);
+    if (stats.gpuBusyPercent >= 0)
+        gpu += fmt::format("   busy {}%", stats.gpuBusyPercent);
+    lines.push_back(gpu);
+
+    if (stats.valid)
+    {
+        std::string cpu = "CPU MHz";
+        for (int i = 0; i < stats.cpuCount; i++)
+        {
+            if (i > 0 && stats.capacity[i] != stats.capacity[i - 1])
+                cpu += " |";
+            cpu += fmt::format(" {}", stats.curMHz[i]);
+        }
+        lines.push_back(cpu);
+
+        const int guest = int(os::android::overlay::Role::Guest);
+        const int render = int(os::android::overlay::Role::Render);
+        lines.push_back(fmt::format("Game {:.0f}% c{}   Render {:.0f}% c{}   Process {:.1f} cores",
+            100.0f * stats.threadLoad[guest], stats.threadCore[guest],
+            100.0f * stats.threadLoad[render], stats.threadCore[render], stats.processCores));
+    }
+
+    const uint32_t api = device.apiVersion;
+    lines.push_back(fmt::format("{}   {}   Vulkan {}.{}.{}", device.name,
+        device.driverInfo.empty() ? fmt::format("0x{:X}", device.driverVersion) : device.driverInfo,
+        (api >> 22) & 0x7F, (api >> 12) & 0x3FF, api & 0xFFF));
+
+    std::string system = fmt::format("{}x{}   scale {:.2f}", g_swapChain->getWidth(), g_swapChain->getHeight(), float(Config::ResolutionScale));
+    if (stats.valid)
+    {
+        if (stats.thermalStatus >= 0)
+            system += fmt::format("   thermal {}", stats.thermalStatus);
+        if (stats.thermalHeadroom >= 0.0f)
+            system += fmt::format(" (headroom {:.2f})", stats.thermalHeadroom);
+        if (stats.batteryCelsius > -100.0f)
+            system += fmt::format("   battery {:.1f} C", stats.batteryCelsius);
+        system += fmt::format("   RAM {:.0f} MB", stats.residentMB);
+    }
+    system += fmt::format("   ADPF {}", os::android::hint::GetStatus());
+    lines.push_back(system);
+
+    auto drawList = ImGui::GetBackgroundDrawList();
+    auto font = ImFontAtlasSnapshot::GetFont("FOT-RodinPro-DB.otf");
+    const float fontSize = Scale(9);
+    const float lineHeight = fontSize + Scale(2);
+    const float padding = Scale(4);
+    const float graphHeight = Scale(22);
+
+    float width = Scale(160);
+    for (const auto& line : lines)
+        width = std::max(width, font->CalcTextSizeA(fontSize, FLT_MAX, 0, line.c_str()).x);
+
+    const ImVec2 min = { Scale(40), Scale(30) };
+    const ImVec2 max = { min.x + width + padding * 2, min.y + padding * 3 + lineHeight * lines.size() + graphHeight };
+    drawList->AddRectFilled(min, max, IM_COL32(0, 0, 0, 170));
+
+    float y = min.y + padding;
+    for (const auto& line : lines)
+    {
+        drawList->AddText(font, fontSize, { min.x + padding, y }, IM_COL32_WHITE, line.c_str());
+        y += lineHeight;
+    }
+
+    // Frame time graph: the last 120 frames, scaled to at least 33.3 ms, with a 16.7 ms line.
+    const ImVec2 graphMin = { min.x + padding, y + padding };
+    const ImVec2 graphMax = { max.x - padding, graphMin.y + graphHeight };
+    float graphScale = 33.3f;
+    for (float value : history)
+        graphScale = std::max(graphScale, value);
+    const float referenceY = graphMax.y - (16.7f / graphScale) * graphHeight;
+    drawList->AddLine({ graphMin.x, referenceY }, { graphMax.x, referenceY }, IM_COL32(255, 255, 255, 70));
+
+    ImVec2 points[std::size(history)];
+    for (size_t i = 0; i < std::size(history); i++)
+    {
+        const float value = history[(historyIndex + i) % std::size(history)];
+        points[i] = { graphMin.x + (graphMax.x - graphMin.x) * float(i) / float(std::size(history) - 1),
+            graphMax.y - std::min(value / graphScale, 1.0f) * graphHeight };
+    }
+    drawList->AddPolyline(points, int(std::size(history)), IM_COL32(120, 230, 120, 255), 0, Scale(1));
+}
+#endif
+
 static void DrawImGui()
 {
     ImGui_ImplSDL3_NewFrame();
@@ -3788,6 +4309,11 @@ static void DrawImGui()
 
     assert(ImGui::GetBackgroundDrawList()->_ClipRectStack.Size == 1 && "Some clip rects were not removed from the stack!");
 
+#ifdef __ANDROID__
+    if (os::android::overlay::IsEnabled())
+        DrawAndroidOverlay();
+    else
+#endif
     DrawFPS();
     DrawProfiler();
     ImGui::Render();
@@ -3805,6 +4331,8 @@ static void SetFramebuffer(GuestSurface *renderTarget, GuestSurface *depthStenci
 
 static void ProcDrawImGui(const RenderCommand& cmd)
 {
+    g_commandLists[g_frame]->setRenderPassLabel(1);
+
     // Make sure the backbuffer is the current target.
     AddBarrier(g_backBuffer, RenderTextureLayout::COLOR_WRITE);
     FlushBarriers();
@@ -3956,15 +4484,31 @@ static void ProcDrawImGui(const RenderCommand& cmd)
 // 5. After the loading thread quits, application also presents.
 static bool g_pendingWaitOnSwapChain = true;
 
+#ifdef __ANDROID__
+// Guest thread: nanoseconds spent waiting for the display since the last frame's report.
+static int64_t g_hintDisplayWaitNs;
+
+static int64_t HintNowNs()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+#endif
+
 void Video::WaitOnSwapChain()
 {
     if (g_pendingWaitOnSwapChain)
     {
         if (g_swapChainValid)
         {
+#ifdef __ANDROID__
+            const int64_t waitStart = HintNowNs();
+#endif
             g_presentWaitProfiler.Begin();
             g_swapChain->wait();
             g_presentWaitProfiler.End();
+#ifdef __ANDROID__
+            g_hintDisplayWaitNs += HintNowNs() - waitStart;
+#endif
         }
 
         g_pendingWaitOnSwapChain = false;
@@ -4072,6 +4616,7 @@ void Video::Present()
     diagnostics.Begin();
     auto perfMark = AndroidFrameDiagnostics::Clock::time_point{};
     double perfRenderWait = 0.0, perfPresent = 0.0, perfFence = 0.0, perfPacing = 0.0;
+    int64_t hintFenceNs = 0;
 #endif
     g_readyForCommands = false;
 
@@ -4097,9 +4642,15 @@ void Video::Present()
     {
         if (g_pendingWaitOnSwapChain)
         {
+#ifdef __ANDROID__
+            const int64_t waitStart = HintNowNs();
+#endif
             g_presentWaitProfiler.Begin();
             g_swapChain->wait(); // Never gonna happen outside loading threads as explained above.
             g_presentWaitProfiler.End();
+#ifdef __ANDROID__
+            g_hintDisplayWaitNs += HintNowNs() - waitStart;
+#endif
         }
 
         RenderCommandSemaphore* signalSemaphores[] = { g_renderSemaphores[g_backBufferIndex].get() };
@@ -4114,6 +4665,10 @@ void Video::Present()
 
     g_pendingWaitOnSwapChain = true;
 
+#ifdef __ANDROID__
+    const uint32_t submittedFrame = g_frame;
+    bool hintGpuRead = false;
+#endif
     g_frame = g_nextFrame;
     g_nextFrame = (g_frame + 1) % NUM_FRAMES;
 
@@ -4122,9 +4677,11 @@ void Video::Present()
         g_frameFenceProfiler.Begin();
 #ifdef __ANDROID__
         if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
+        const int64_t fenceStart = HintNowNs();
 #endif
         g_queue->waitForCommandFence(g_commandFences[g_frame].get());
 #ifdef __ANDROID__
+        hintFenceNs = HintNowNs() - fenceStart;
         if (diagnostics.enabled) perfFence = AndroidFrameDiagnostics::Milliseconds(perfMark, AndroidFrameDiagnostics::Clock::now());
 #endif
         g_frameFenceProfiler.End();
@@ -4134,6 +4691,18 @@ void Video::Present()
         g_queryPools[g_frame]->queryResults();
         const uint64_t *frameTimestamps = g_queryPools[g_frame]->getResults();
         g_gpuFrameProfiler.Set(double(frameTimestamps[1] - frameTimestamps[0]) / 1000000.0);
+#ifdef __ANDROID__
+        hintGpuRead = true;
+
+        if (g_passQueryPools[g_frame] != nullptr)
+        {
+            g_passQueryPools[g_frame]->queryResults();
+            const auto& passes = g_commandLists[g_frame]->getRenderPassTimestamps();
+            const RenderCommandListStats stats = g_commandLists[g_frame]->getStats();
+            g_gpuPassDiagnostics.AddFrame(passes, g_passQueryPools[g_frame]->getResults(), frameTimestamps[0], frameTimestamps[1], stats,
+                stats.renderPasses > passes.size());
+        }
+#endif
     }
 
     g_dirtyStates = DirtyStates(true);
@@ -4148,13 +4717,52 @@ void Video::Present()
         s_needsResize = false;
     }
 
+#ifdef __ANDROID__
+    // Acquiring the next image waits for the display when the swap chain is full.
+    const int64_t acquireStart = HintNowNs();
+#endif
     CheckSwapChain();
+#ifdef __ANDROID__
+    g_hintDisplayWaitNs += HintNowNs() - acquireStart;
+#endif
 
     cmd.type = RenderCommandType::BeginCommandList;
     g_renderQueue.enqueue(cmd);
 
 #ifdef __ANDROID__
     if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
+
+    // ADPF: the frame's work runs from the end of the previous frame's limiter to here, minus the
+    // waits for the display (swap chain wait and acquire); the CPU part also leaves out the wait
+    // for the GPU fence. The GPU timestamps of a frame are read NUM_FRAMES - 1 frames later, so
+    // each frame's CPU timings are kept with its command list slot and reported together with
+    // its own GPU time.
+    struct HintFrame
+    {
+        int64_t start = 0;
+        int64_t total = 0;
+        int64_t cpu = 0;
+    };
+    static HintFrame s_hintFrames[NUM_FRAMES];
+    static int64_t s_hintWorkStart = 0;
+    {
+        const int64_t now = HintNowNs();
+        if (s_hintWorkStart != 0)
+        {
+            const int64_t total = now - s_hintWorkStart - g_hintDisplayWaitNs;
+            s_hintFrames[submittedFrame] = { s_hintWorkStart, total, total - hintFenceNs };
+        }
+
+        HintFrame& completed = s_hintFrames[g_frame];
+        if (hintGpuRead && completed.start != 0)
+        {
+            const double gpuMs = g_gpuFrameProfiler.value.load();
+            os::android::hint::ReportFrame(completed.start, completed.total, completed.cpu,
+                gpuMs > 0.0 ? int64_t(gpuMs * 1e6) : -1, int32_t(Config::FPS));
+        }
+        completed = {};
+    }
+    os::android::thread_hints::CheckAffinity();
 #endif
     if (Config::FPS >= FPS_MIN && Config::FPS < FPS_MAX)
     {
@@ -4166,6 +4774,22 @@ void Video::Present()
 
         if (now < s_next)
         {
+#ifdef __ANDROID__
+            // Experiment (a launcher switch, off by default): sleep to 0.5 ms before the deadline
+            // instead of whole milliseconds to 2 ms before it, leaving 0.5 ms instead of 2-3 ms
+            // of yielding per frame. Compare frame times, pacing and battery use.
+            static const bool s_preciseLimiter = []
+            {
+                std::error_code error;
+                const bool enabled = std::filesystem::exists(os::android::GetDataRoot() / "precise_frame_limiter.enabled", error);
+                LOGFN("Frame limiter: {}.", enabled ? "precise (precise_frame_limiter.enabled)" : "default");
+                return enabled;
+            }();
+
+            if (s_preciseLimiter)
+                std::this_thread::sleep_until(s_next - 500us);
+            else
+#endif
             std::this_thread::sleep_for(std::chrono::floor<std::chrono::milliseconds>(s_next - now - 2ms));
 
             while ((now = std::chrono::steady_clock::now()) < s_next)
@@ -4182,6 +4806,8 @@ void Video::Present()
 #ifdef __ANDROID__
     if (diagnostics.enabled) perfPacing = AndroidFrameDiagnostics::Milliseconds(perfMark, AndroidFrameDiagnostics::Clock::now());
     diagnostics.End(perfRenderWait, perfPresent, perfFence, perfPacing);
+    s_hintWorkStart = HintNowNs();
+    g_hintDisplayWaitNs = 0;
 #endif
     g_presentProfiler.Reset();
 }
@@ -4449,6 +5075,8 @@ static void SetRootDescriptor(const UploadAllocation& allocation, size_t index)
 
 static void ProcExecuteCommandList(const RenderCommand& cmd)
 {    
+    g_commandLists[g_frame]->setRenderPassLabel(2);
+
     if (g_swapChainValid)
     {
         auto swapChainTexture = g_swapChain->getTexture(g_backBufferIndex);
@@ -4526,6 +5154,16 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
     }
 
     auto &commandList = g_commandLists[g_frame];
+#ifdef __ANDROID__
+    if (g_passQueryPools[g_frame] != nullptr)
+    {
+        // The pool is read back whole, so every query is written: the end of the frame first,
+        // then the same point again for the unused ones.
+        commandList->setRenderPassTimestamps(nullptr, 0, 0);
+        for (uint32_t i = uint32_t(commandList->getRenderPassTimestamps().size()); i < NUM_PASS_QUERIES; i++)
+            commandList->writeTimestamp(g_passQueryPools[g_frame].get(), i);
+    }
+#endif
     commandList->writeTimestamp(g_queryPools[g_frame].get(), 1);
     commandList->end();
 
@@ -6269,10 +6907,33 @@ static std::unique_ptr<RenderPipeline> CreateGraphicsPipeline(const PipelineStat
     }
 #endif
 
+#ifdef __ANDROID__
+    const auto compileStart = std::chrono::steady_clock::now();
+#endif
+
     auto pipeline = g_device->createGraphicsPipeline(desc);
 
 #ifdef __ANDROID__
     os::android::SetCrashContext(nullptr);
+
+    {
+        const uint64_t us = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - compileStart).count());
+        if (g_isRenderThread && !App::s_isLoading)
+        {
+            g_psoGameplayCount++;
+            g_psoGameplayMicroseconds += us;
+            uint64_t previous = g_psoGameplayMaxMicroseconds.load();
+            while (us > previous && !g_psoGameplayMaxMicroseconds.compare_exchange_weak(previous, us))
+            {
+            }
+        }
+        else
+        {
+            g_psoOtherCount++;
+            g_psoOtherMicroseconds += us;
+        }
+        g_pipelinesSinceCacheSave++;
+    }
 
     if (pipeline != nullptr && !pipeline->isValid())
         ReportGamePipelineFailure(pipelineState, desc);
@@ -7461,6 +8122,11 @@ static void SetClipPlane(GuestDevice* device, uint32_t index, const be<float>* p
 static std::thread g_renderThread([]
     {
         os::thread::SetCurrentThreadName("Render Thread");
+#ifdef __ANDROID__
+        g_isRenderThread = true;
+        os::android::overlay::SetThread(os::android::overlay::Role::Render, gettid());
+        os::android::hint::SetThread(os::android::hint::Role::Render, gettid());
+#endif
 
 #ifdef _WIN32
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
@@ -8004,6 +8670,18 @@ static bool GetBCnFallback(RenderFormat format, const uint8_t* data, size_t data
 }
 #endif
 
+// SetMSAALevel (patches/video_patches.cpp) makes the game create every surface without MSAA, so
+// MSAA pipeline variants are never used; on Android they are not precompiled (start-up time and
+// pipeline cache size). Other platforms keep the upstream behaviour.
+static bool IsMsaaInUse()
+{
+#ifdef __ANDROID__
+    return false;
+#else
+    return Config::AntiAliasing != EAntiAliasing::Off;
+#endif
+}
+
 static bool LoadTexture(GuestTexture& texture, const uint8_t* data, size_t dataSize, RenderComponentMapping componentMapping)
 {
     ddspp::Descriptor ddsDesc;
@@ -8117,11 +8795,36 @@ static bool LoadTexture(GuestTexture& texture, const uint8_t* data, size_t dataS
 
 #ifdef __ANDROID__
         std::vector<uint8_t> decodeTemp;
+
+        // Transcoded textures: read from the texture cache, or transcode into a CPU buffer (the
+        // mapped upload memory may be slow to read back) and store it.
+        const bool transcode = bcFallback.mode == BCnFallbackMode::Transcode;
+        const bool useTextureCache = transcode && os::android::texture_cache::IsEnabled();
+        os::android::texture_cache::Key textureCacheKey;
+        thread_local std::vector<uint8_t> s_transcoded;
+        bool fromTextureCache = false;
+        if (useTextureCache)
+        {
+            textureCacheKey = os::android::texture_cache::MakeKey(data, dataSize, uint32_t(desc.format), curDstOffset);
+            fromTextureCache = os::android::texture_cache::Read(textureCacheKey, mappedMemory, curDstOffset);
+            if (!fromTextureCache)
+                s_transcoded.assign(curDstOffset, 0);
+        }
+        uint8_t* const transcodeTarget = useTextureCache ? s_transcoded.data() : mappedMemory;
+        const int64_t transcodeStart = transcode ? os::android::waits::NowNs() : 0;
 #endif
         for (auto& slice : slices)
         {
+#ifdef __ANDROID__
+            if (fromTextureCache)
+                break;
+#endif
             const uint8_t* srcData = data + ddsDesc.headerSize + slice.srcOffset;
             uint8_t* dstData = mappedMemory + slice.dstOffset;
+#ifdef __ANDROID__
+            if (transcode)
+                dstData = transcodeTarget + slice.dstOffset;
+#endif
 
 #ifdef __ANDROID__
             if (bcFallback.mode != BCnFallbackMode::None)
@@ -8188,6 +8891,17 @@ static bool LoadTexture(GuestTexture& texture, const uint8_t* data, size_t dataS
             }
         }
 
+#ifdef __ANDROID__
+        if (transcode && !fromTextureCache)
+        {
+            os::android::texture_cache::CountTranscode(os::android::waits::NowNs() - transcodeStart, curDstOffset);
+            if (useTextureCache)
+            {
+                memcpy(mappedMemory, s_transcoded.data(), curDstOffset);
+                os::android::texture_cache::Write(textureCacheKey, s_transcoded.data(), curDstOffset);
+            }
+        }
+#endif
         uploadBuffer->unmap();
 
         ExecuteCopyCommandList([&]
@@ -8724,7 +9438,7 @@ static void PipelineTaskConsumerThread()
                         };
 
                     // Compile both MSAA and non MSAA variants to work with reflection maps. The render formats are an assumption but it should hold true.
-                    if (Config::AntiAliasing != EAntiAliasing::Off &&
+                    if (IsMsaaInUse() &&
                         pipelineState.renderTargetFormat == RenderFormat::R16G16B16A16_FLOAT &&
                         pipelineState.depthStencilFormat == RenderFormat::D32_FLOAT_S8_UINT)
                     {
@@ -8766,7 +9480,7 @@ static void PipelineTaskConsumerThread()
                     pipelineState.enableAlphaToCoverage = false;
                     pipelineState.specConstants &= ~(SPEC_CONSTANT_ALPHA_TEST | SPEC_CONSTANT_ALPHA_TO_COVERAGE);
 
-                    if (msaa && Config::AntiAliasing != EAntiAliasing::Off)
+                    if (msaa && IsMsaaInUse())
                     {
                         pipelineState.sampleCount = int32_t(Config::AntiAliasing.Value);
 

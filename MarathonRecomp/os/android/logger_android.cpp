@@ -4,6 +4,11 @@
 
 #include <android/log.h>
 
+#include <algorithm>
+#include <filesystem>
+#include <string>
+#include <vector>
+
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -541,6 +546,40 @@ static void LogDeviceInfo()
             kernel.release, kernel.version, kernel.machine);
         WriteLogRecord("[kernel]", nullptr, line, strlen(line));
     }
+}
+
+// The launcher's game switches are marker files in the game root (*.enabled / *.disabled); with
+// no marker every switch is at its recommended setting. Listing the markers present shows a
+// changed switch in a tester's log without comparing numbers first.
+void os::android::LogLauncherSwitches()
+{
+    const auto isMarker = [](const std::string& name)
+    {
+        for (const std::string_view suffix : { std::string_view(".enabled"), std::string_view(".disabled") })
+        {
+            if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
+                return true;
+        }
+
+        return false;
+    };
+
+    std::vector<std::string> markers;
+    std::error_code error;
+    for (auto it = std::filesystem::directory_iterator(os::android::GetDataRoot(), error);
+        !error && it != std::filesystem::directory_iterator(); it.increment(error))
+    {
+        const std::string name = it->path().filename().string();
+        if (isMarker(name) && it->is_regular_file(error))
+            markers.push_back(name);
+    }
+
+    std::sort(markers.begin(), markers.end());
+    std::string line = markers.empty() ? "all at the recommended settings (no marker files)" : "differ from the recommended settings:";
+    for (const std::string& marker : markers)
+        line += " " + marker;
+
+    WriteLogRecord("[switches]", nullptr, line.c_str(), line.size());
 }
 
 // ---------------------------------------------------------------------------

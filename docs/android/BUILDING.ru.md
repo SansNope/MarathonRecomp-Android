@@ -61,7 +61,7 @@ notepad android\local.paths.json
 Скрипт:
 
 1. инициализирует git submodule;
-2. применяет `android/patches/plume/0001-marathon-android.patch` к `thirdparty/plume`;
+2. применяет `android/patches/plume/0001-marathon-android.patch` к `thirdparty/plume` и `android/patches/xenonrecomp/0001-merge-rounding-overrides.patch` к `tools/XenonRecomp` (если инструменты хоста собраны до v0.2.0, после этого шага запустите `Build-HostTools.ps1` ещё раз);
 3. скачивает zlib 1.3.2 (проверка SHA-512) для инструментов хоста;
 4. получает vcpkg на коммите `7087dcfb` и применяет официальный `thirdparty/ffmpeg-core/ffmpeg.patch`, который добавляет в FFmpeg декодер XMA от Xbox 360 (XMAFRAMES). На Windows вложенный патч может получить переводы строк CRLF; скрипт переводит его в LF и сверяет SHA-256.
 
@@ -96,7 +96,7 @@ notepad android\local.paths.json
 
 ### Оптимизации XenonRecomp
 
-`Configure-Android.ps1` по умолчанию включает проверенную группу оптимизаций XenonRecomp: регистры CTR, XER, CR и регистр резервирования как локальные переменные C++ (`-DMARATHON_RECOMP_PPC_*_AS_LOCAL=ON`). В оригинальном MarathonRecomp они все выключены. Собрать консервативный вариант:
+`Configure-Android.ps1` по умолчанию включает проверенную группу оптимизаций XenonRecomp: регистры CTR, XER, CR и регистр резервирования как локальные переменные C++ (`-DMARATHON_RECOMP_PPC_*_AS_LOCAL=ON`), а с v0.2.0 ещё `-DMARATHON_RECOMP_PPC_MERGE_ROUNDING=ON`. Последняя опция добавляется патчем XenonRecomp из этого репозитория: векторные скалярные произведения игры переключают режим округления FPU до и после каждой инструкции (`msr fpcr`, на ARM это медленно); с опцией одно переключение покрывает серию произведений и инструкций, не зависящих от округления, и снимается перед всем, что от него зависит. Сгенерированный код проверен по инструкциям (ни одна не выполняется с другим режимом округления). В оригинальном MarathonRecomp они все выключены. Собрать консервативный вариант:
 
 ```powershell
 .\android\scripts\Configure-Android.ps1 -BuildDir out\build\android-arm64-upstream -CMakeArgs @() -Build

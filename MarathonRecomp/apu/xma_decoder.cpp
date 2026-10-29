@@ -10,6 +10,7 @@
 // Almost all decoding code is from Xenia Canary, so leave the copyright here
 
 #include "xma_decoder.h"
+#include <os/android/guest_waits_android.h>
 
 // #define ENABLE_DEBUG_XMA_DECODER
 
@@ -428,6 +429,7 @@ uint32_t XMAPlaybackRequestModifyLock(XmaPlayback *playback) {
 }
 
 uint32_t XMAPlaybackWaitUntilModifyLockObtained(XmaPlayback *playback) {
+    GUEST_WAIT_SCOPE(Audio);
     std::unique_lock lock(playback->mutex);
     playback->cv.wait(lock, [&playback] { return playback->isLocked.load(); });
 

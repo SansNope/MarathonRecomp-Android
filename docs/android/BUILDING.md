@@ -61,7 +61,7 @@ If PowerShell refuses to run the scripts, allow local scripts for your user acco
 This script:
 
 1. initialises the git submodules;
-2. applies `android/patches/plume/0001-marathon-android.patch` to `thirdparty/plume`;
+2. applies `android/patches/plume/0001-marathon-android.patch` to `thirdparty/plume` and `android/patches/xenonrecomp/0001-merge-rounding-overrides.patch` to `tools/XenonRecomp` (if you built the host tools before v0.2.0, run `Build-HostTools.ps1` again after this step);
 3. downloads zlib 1.3.2 (checked by SHA-512) for the host tools;
 4. checks out vcpkg at `7087dcfb` and applies the official `thirdparty/ffmpeg-core/ffmpeg.patch`, which adds the Xbox 360 XMA decoder (XMAFRAMES) to FFmpeg. On Windows the nested patch can get CRLF line endings; the script converts it to LF and checks its SHA-256.
 
@@ -96,7 +96,7 @@ Logs of every step are in `out/logs/`. The first native build regenerates all re
 
 ### XenonRecomp optimizations
 
-`Configure-Android.ps1` enables the tested group of XenonRecomp optimizations by default: CTR, XER, CR and the reservation register as C++ locals (`-DMARATHON_RECOMP_PPC_*_AS_LOCAL=ON`). Upstream MarathonRecomp keeps all of them off. To build the conservative set:
+`Configure-Android.ps1` enables the tested group of XenonRecomp optimizations by default: CTR, XER, CR and the reservation register as C++ locals (`-DMARATHON_RECOMP_PPC_*_AS_LOCAL=ON`), and since v0.2.0 `-DMARATHON_RECOMP_PPC_MERGE_ROUNDING=ON`. The last one comes from the XenonRecomp patch in this repository: the game's vector dot products switch the FPU rounding mode before and after every instruction (`msr fpcr`, slow on ARM); with the option, one switch covers a run of dot products and FP-neutral instructions and is restored before anything that depends on the rounding mode. The generated code was checked instruction by instruction (no instruction runs with a different rounding mode). Upstream MarathonRecomp keeps all of them off. To build the conservative set:
 
 ```powershell
 .\android\scripts\Configure-Android.ps1 -BuildDir out\build\android-arm64-upstream -CMakeArgs @() -Build

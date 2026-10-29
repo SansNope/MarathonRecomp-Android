@@ -123,6 +123,22 @@ public final class MarathonLauncherActivity extends Activity {
     private Spinner touchCameraSpinner;
     private Spinner touchStickSpinner;
     private CompoundButton skipIntro;
+    private CompoundButton overlaySwitch;
+    private CompoundButton perfLogSwitch;
+    private CompoundButton profilerSwitch;
+    private CompoundButton pipelineCacheSwitch;
+    private CompoundButton affinitySwitch;
+    private CompoundButton performanceHintSwitch;
+    private CompoundButton renderPassSwitch;
+    private CompoundButton strongestCoresSwitch;
+    private CompoundButton tripleBufferingSwitch;
+    private CompoundButton textureCacheSwitch;
+    private CompoundButton preciseLimiterSwitch;
+    // Recommended state of each game switch: switches that differ are highlighted and listed in
+    // recommendedStatus, and the "Recommended settings" button restores them. skipIntro is a
+    // preference rather than a game setting and is not part of it.
+    private final LinkedHashMap<CompoundButton, Boolean> recommendedSwitches = new LinkedHashMap<>();
+    private TextView recommendedStatus;
     private SharedPreferences prefs;
     private InstallState lastInstallState;
     private TextView storageStatus;
@@ -350,10 +366,65 @@ public final class MarathonLauncherActivity extends Activity {
 
     private void buildAdvancedSection(LinearLayout section) {
         skipIntro = switchRow(section, R.string.launcher_skip_intro);
+        overlaySwitch = switchRow(section, R.string.launcher_overlay);
+        perfLogSwitch = switchRow(section, R.string.launcher_perf_log);
+        profilerSwitch = switchRow(section, R.string.launcher_profiler);
+        pipelineCacheSwitch = switchRow(section, R.string.launcher_pipeline_cache);
+        affinitySwitch = switchRow(section, R.string.launcher_thread_affinity);
+        performanceHintSwitch = switchRow(section, R.string.launcher_performance_hint);
+        renderPassSwitch = switchRow(section, R.string.launcher_render_pass_optimizations);
+        strongestCoresSwitch = switchRow(section, R.string.launcher_main_strongest_cores);
+        tripleBufferingSwitch = switchRow(section, R.string.launcher_triple_buffering);
+        textureCacheSwitch = switchRow(section, R.string.launcher_texture_cache);
+        preciseLimiterSwitch = switchRow(section, R.string.launcher_precise_limiter);
+        recommend(overlaySwitch, false);
+        recommend(perfLogSwitch, false);
+        recommend(profilerSwitch, false);
+        recommend(pipelineCacheSwitch, true);
+        recommend(affinitySwitch, true);
+        recommend(performanceHintSwitch, true);
+        recommend(renderPassSwitch, true);
+        recommend(strongestCoresSwitch, false);
+        recommend(tripleBufferingSwitch, false);
+        recommend(textureCacheSwitch, true);
+        recommend(preciseLimiterSwitch, false);
+        recommendedStatus = statusText();
+        recommendedStatus.setPadding(0, dp(12), 0, 0);
+        section.addView(recommendedStatus);
         diagnosticsStatus = statusText();
-        diagnosticsStatus.setPadding(0, dp(12), 0, 0);
         section.addView(diagnosticsStatus);
-        buttonGrid(section, button(R.string.launcher_open_logs, view -> openFiles("transfer")));
+        buttonGrid(section,
+            button(R.string.launcher_recommended, view -> applyRecommended()),
+            button(R.string.launcher_open_logs, view -> openFiles("transfer")));
+    }
+
+    private void recommend(CompoundButton toggle, boolean value) {
+        recommendedSwitches.put(toggle, value);
+        toggle.setOnCheckedChangeListener((button, checked) -> updateRecommendedState());
+    }
+
+    private void applyRecommended() {
+        for (Map.Entry<CompoundButton, Boolean> entry : recommendedSwitches.entrySet()) {
+            entry.getKey().setChecked(entry.getValue());
+        }
+        updateRecommendedState();
+    }
+
+    private void updateRecommendedState() {
+        if (recommendedStatus == null) return;
+        StringBuilder changed = new StringBuilder();
+        for (Map.Entry<CompoundButton, Boolean> entry : recommendedSwitches.entrySet()) {
+            CompoundButton toggle = entry.getKey();
+            boolean differs = toggle.isChecked() != entry.getValue();
+            toggle.setTextColor(differs ? COLOR_ACCENT : COLOR_TEXT);
+            if (differs) {
+                if (changed.length() > 0) changed.append("; ");
+                changed.append(toggle.getText());
+            }
+        }
+        recommendedStatus.setText(changed.length() == 0
+            ? getString(R.string.launcher_recommended_all)
+            : getString(R.string.launcher_recommended_changed, changed));
     }
 
     private void addSection(LinearLayout rail, LinearLayout content, int railLabelId, int titleId,
@@ -578,6 +649,66 @@ public final class MarathonLauncherActivity extends Activity {
         select(touchStickSpinner, config.get("Input.TouchStickMode"), TOUCH_STICK_VALUES);
         applyDriverPresetToLauncher();
         skipIntro.setChecked(prefs.getBoolean("skip_logos", false));
+        loadGameSwitches();
+    }
+
+    // The game-side switches are marker files in the game root, read by the game at startup:
+    // diagnostics are opt-in, the shader cache and the thread pinning are on unless disabled.
+    private static final String MARKER_OVERLAY = "overlay.enabled";
+    private static final String MARKER_PERF_LOG = "perf_capture.enabled";
+    private static final String MARKER_PROFILER = "perf_sampling.enabled";
+    private static final String MARKER_NO_PIPELINE_CACHE = "pipeline_cache.disabled";
+    private static final String MARKER_NO_AFFINITY = "thread_affinity.disabled";
+    private static final String MARKER_NO_PERFORMANCE_HINT = "performance_hint.disabled";
+    // On unless disabled: load-op clears and precise barriers in the Vulkan render passes.
+    private static final String MARKER_NO_RENDER_PASS_OPTIMIZATIONS = "render_pass_optimizations.disabled";
+    // Experiment, off by default: the guest main thread only on the strongest cluster.
+    private static final String MARKER_MAIN_STRONGEST = "thread_affinity_main_strongest.enabled";
+    // Experiment, off by default: three swap chain images instead of the two Auto picks without presentWait.
+    private static final String MARKER_TRIPLE_BUFFERING = "triple_buffering.enabled";
+    // On unless disabled: disk cache of BC->ETC2 transcoded textures, used only without BC support.
+    // Builds before 0.2.0 had it as an opt-in experiment (texture_cache.enabled), which is removed.
+    private static final String MARKER_NO_TEXTURE_CACHE = "texture_cache.disabled";
+    private static final String MARKER_OLD_TEXTURE_CACHE = "texture_cache.enabled";
+    // Experiment, off by default: tighter frame limiter sleep.
+    private static final String MARKER_PRECISE_LIMITER = "precise_frame_limiter.enabled";
+
+    private void loadGameSwitches() {
+        File root = AppStorage.activeGameRoot(this);
+        // v0.1.6 created perf_capture.enabled on the first launch (remembered by .perf_capture_default);
+        // logging is opt-in now, so that automatic marker is removed. Later builds never write it.
+        File automatic = new File(root, ".perf_capture_default");
+        if (automatic.isFile()) {
+            new File(root, MARKER_PERF_LOG).delete();
+            automatic.delete();
+        }
+        new File(root, MARKER_OLD_TEXTURE_CACHE).delete();
+        overlaySwitch.setChecked(new File(root, MARKER_OVERLAY).isFile());
+        perfLogSwitch.setChecked(new File(root, MARKER_PERF_LOG).isFile());
+        profilerSwitch.setChecked(new File(root, MARKER_PROFILER).isFile());
+        pipelineCacheSwitch.setChecked(!new File(root, MARKER_NO_PIPELINE_CACHE).isFile());
+        affinitySwitch.setChecked(!new File(root, MARKER_NO_AFFINITY).isFile());
+        performanceHintSwitch.setChecked(!new File(root, MARKER_NO_PERFORMANCE_HINT).isFile());
+        renderPassSwitch.setChecked(!new File(root, MARKER_NO_RENDER_PASS_OPTIMIZATIONS).isFile());
+        strongestCoresSwitch.setChecked(new File(root, MARKER_MAIN_STRONGEST).isFile());
+        tripleBufferingSwitch.setChecked(new File(root, MARKER_TRIPLE_BUFFERING).isFile());
+        textureCacheSwitch.setChecked(!new File(root, MARKER_NO_TEXTURE_CACHE).isFile());
+        preciseLimiterSwitch.setChecked(new File(root, MARKER_PRECISE_LIMITER).isFile());
+        updateRecommendedState();
+    }
+
+    private void saveGameSwitches(File root) throws IOException {
+        setMarker(new File(root, MARKER_OVERLAY), overlaySwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_PERF_LOG), perfLogSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_PROFILER), profilerSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_NO_PIPELINE_CACHE), !pipelineCacheSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_NO_AFFINITY), !affinitySwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_NO_PERFORMANCE_HINT), !performanceHintSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_NO_RENDER_PASS_OPTIMIZATIONS), !renderPassSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_MAIN_STRONGEST), strongestCoresSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_TRIPLE_BUFFERING), tripleBufferingSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_NO_TEXTURE_CACHE), !textureCacheSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_PRECISE_LIMITER), preciseLimiterSwitch.isChecked(), "");
     }
 
     private boolean saveSettings() {
@@ -592,6 +723,7 @@ public final class MarathonLauncherActivity extends Activity {
         try {
             AppStorage.validateRoot(this, AppStorage.activeGameRoot(this));
             patchConfig(AppStorage.configFile(this), values);
+            saveGameSwitches(AppStorage.activeGameRoot(this));
             return true;
         } catch (IOException exception) {
             showError(getString(R.string.error_settings_save, FileErrorMessages.describe(this, exception)));

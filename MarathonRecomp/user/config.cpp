@@ -897,6 +897,16 @@ void Config::Load()
     {
         LOGFN_ERROR("Failed to parse configuration: {}", err.what());
     }
+
+#ifdef __ANDROID__
+    // A cap below the allowed minimum saved by an older build is raised to 60.
+    if (Config::FPS < FPS_MIN_OPTION)
+    {
+        LOGFN_WARNING("FPS cap {} is below {}, which this build does not support; using 60.", int32_t(Config::FPS), FPS_MIN_OPTION);
+        Config::FPS = 60;
+        Config::Save();
+    }
+#endif
 }
 
 void Config::Save()

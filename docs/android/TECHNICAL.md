@@ -54,6 +54,19 @@ Measured on a POCO F5 (SM7475) in the HUB, with `perf_capture.enabled` and Perfe
 - **Pre-rotation** — removes SurfaceFlinger's GPU composition (see section 3).
 - **Remaining limits on the POCO F5:** in the HUB the GPU needs ~15.5 of the 16.7 ms frame budget at 60 % scale, and scene loads cause short drops.
 
+### Pixel 7 Pro (Tensor G2, Mali-G710), v0.2.0
+
+Measured from testers' `log.txt` files (`[perf]`, the CPU profiler, `[waits]`/`[wakers]`, `[gpu-passes]`). v0.1.6 ran at 24–31 FPS in levels at 25 % render scale; the v0.2.0 development builds at 45–55 FPS (41–57 FPS at 50 %).
+
+- **Main and render threads on the little cores.** The thread that sleeps in the frame limiter looks light to the Tensor scheduler, so the main game thread and the render thread stayed on the Cortex-A55 cores at 0.9–1.2 GHz while the big cores idled. They are now pinned together with the workers (`main_render=1` in `thread_affinity.enabled` is the default; `=0` restores the old behaviour).
+- **Which threads the main thread waits for.** A hook on the game's `WaitForSingleObject` (`sub_82537DC0`) records the guest call site, and `Event::Set`/`Semaphore::Release` record which thread signalled the object the main thread waits on. Almost all waiting was one call site, woken by ModelStandard, particle, Havok and document workers that were not in the pinning list; they were added. The pinning is checked every 2 seconds and restored (a lost mask only counts when it contains cores outside the thread's set, so cores parked by the kernel do not trigger it).
+- **FPCR switches.** The profiler showed `sub_82168C48` at ~18 % of the game thread: the recompiled vector dot products (`vmsum3fp128`/`vmsum4fp128`) set the rounding mode to "toward zero" before each instruction and restore it after, 33 `msr fpcr` writes in that function alone. The XenonRecomp option `merge_rounding_overrides` (patch `android/patches/xenonrecomp`, CMake `MARATHON_RECOMP_PPC_MERGE_ROUNDING`) keeps the override across further dot products and instructions that do not depend on the rounding mode (vector loads/stores, merges, permutes, splats, integer moves and loads/stores), and restores it before anything else, at labels, mid-asm hooks and the end of the function. With the option off the generated code is identical to before (150 of 150 files); with it on, a checker found no instruction that runs with a different rounding mode, and the function above went from 372 to 251 instructions (33 → 3 FPCR writes). Together with the pinning, the game thread's CPU time per frame roughly halved.
+- **GPU.** In levels ~48 render passes per frame. About 10 of the 12–17 ms do not depend on the render scale: 512×512 shadow maps (8 passes), ~25 one-draw bloom/brightness passes, and four passes at the screen resolution (HUD and the final image, then gamma with the screen rotation). On tile-based GPUs every pass loads and stores its attachments, so two changes were made in Plume (switch `render_pass_optimizations.disabled` turns both off): a full clear that comes before the first draw becomes `LOAD_OP_CLEAR` of a compatible render pass instead of `vkCmdClearAttachments` after a load, and barriers get stage/access masks from the old and new texture layouts instead of "all commands" (sampling is assumed in vertex and fragment shaders, because Xenos shaders may fetch textures in vertex shaders; buffers, `GENERAL` and `PRESENT` keep the full masks). GPU time in levels went down by roughly 10–15 % (shadow maps 3.0–5.2 → 2.3–4.4 ms, the bloom chain 1.2–1.5 → 0.6–0.9 ms; scenes were not identical). Splitting of one pass by a barrier on the same target was measured too: ~5 per frame, all one-draw passes, so merging passes across barriers was not worth doing.
+- **Display wait.** The frame takes 18–24 ms: ~10–12 ms of game-thread work plus ~5–6 ms waiting for the next swap-chain image. The driver gives 5 swap-chain images whatever is requested (POCO F5: 4), so triple buffering changes nothing.
+- **ADPF.** A performance-hint session covers the game, render and presenting threads and reports CPU and GPU time of the same frame. The Pixel's power HAL did not raise the threads' `uclamp` through it in our logs (read back with `sched_getattr`); apps cannot set uclamp themselves on this kernel (EPERM). The POCO F5 has no ADPF.
+- **Loads.** BC→ETC2 conversion took ~15 % of the game thread while a level loaded. The converted data depends only on the source texture and the target format, so it is stored under an XXH3-128 hash in `<internal storage>/texture_cache` (with a size and content hash per entry, up to 1 GB) — about 1.5 s less CPU work per level load.
+- **Not done** (much more work for an uncertain gain): `DONT_CARE` stores for depth that is not read later, merging the one-draw passes (needs shader changes), a lighter shadow setup, folding gamma into the last game pass.
+
 ## 6. Input
 
 - **On-screen touch controls** (`ui/touch_controls.*`, ported from UnleashedRecomp-Android) with a layout editor started from the launcher, and an `HID::Touch` peripheral attached with the keyboard and mouse of user 1. Touches do not generate mouse events (`SDL_HINT_TOUCH_MOUSE_EVENTS = 0`). Physical gamepad input hides the overlay in Auto mode.
@@ -61,7 +74,7 @@ Measured on a POCO F5 (SM7475) in the HUB, with `perf_capture.enabled` and Perfe
 
 ## 7. Launcher and Android app (`android-apk/`)
 
-- **`MarathonLauncherActivity`** — game status (game ready, DLC count), install from ZIP or folder through the Storage Access Framework, storage choice and migration, Vulkan driver and render mode, touch options, skip intro, logs, the **Info** window. The theme is drawn in code (`LauncherStyle.java`) in the style of the 2006 menus. Strings: English (default) and Russian.
+- **`MarathonLauncherActivity`** — game status (game ready, DLC count), install from ZIP or folder through the Storage Access Framework, storage choice and migration, Vulkan driver and render mode, touch options, skip intro, logs, the **Info** window. **Advanced → Debug** holds the game switches of section 8; each has a recommended state, switches that differ are highlighted and listed, and **Recommended settings** restores them. The switches are written as marker files when the game starts, and the game writes the markers it found to a `[switches]` line in `log.txt`. The theme is drawn in code (`LauncherStyle.java`) in the style of the 2006 menus. Strings: English (default) and Russian.
 - **`MarathonActivity`** — the SDL activity that starts `libmain.so`.
 - **`MarathonDocumentsProvider`** — exposes the game folder, the saves and the transfer folder to the system Files app (Android 11+ hides `Android/data` from file managers).
 - Separate application ID `io.github.sansnope.marathonrecomp.android`, so it installs next to other ports.
@@ -70,11 +83,20 @@ Measured on a POCO F5 (SM7475) in the HUB, with `perf_capture.enabled` and Perfe
 
 | File | Effect |
 |---|---|
-| `perf_capture.enabled` | `[perf]` timing line in `log.txt` every 2 seconds; created on the first launch since v0.1.6 (delete it to turn it off, it is not created again) |
+| `overlay.enabled` | performance overlay (launcher: *Performance monitor*) |
+| `perf_capture.enabled` | `[perf]` line every 2 seconds plus `[waits]`, `[wakers]`, `[gpu-passes]`, `[gpu-frame]`, `[texture-cache]` summaries (launcher: *Performance log*). v0.1.6 created it automatically; since v0.2.0 the launcher removes that automatic file |
+| `perf_sampling.enabled` | CPU profiler of the game thread: `[prof]`, `[threads]`, `[cpufreq]` every 20 seconds (launcher: *CPU profiler*) |
+| `pipeline_cache.disabled` | no Vulkan pipeline cache on disk (`cache/pipeline_cache.bin`) |
+| `thread_affinity.disabled` | no thread pinning (launcher: *Keep game threads on fast cores*) |
+| `thread_affinity.enabled` | `cpus=4-7`, `workers=…`, `main_render=0` overrides |
+| `thread_affinity_main_strongest.enabled` | experiment: the main game thread only on the cores with the highest capacity (needs at least two) |
+| `performance_hint.disabled` | no ADPF performance-hint session |
+| `render_pass_optimizations.disabled` | Vulkan render passes as before v0.2.0 (no load-op clears, full barrier masks) |
+| `texture_cache.disabled` | no cache of BC→ETC2 converted textures |
+| `triple_buffering.enabled` | experiment: request 3 swap-chain images (drivers usually give more anyway) |
+| `precise_frame_limiter.enabled` | experiment: the frame limiter sleeps until 0.5 ms before the deadline instead of 2 ms |
 | `log_utility.enabled` | Utility log lines (file loads, stub calls) |
 | `prerotation.disabled` | swap chain without pre-rotation |
-| `thread_affinity.disabled` | no worker affinity |
-| `thread_affinity.enabled` | `cpus=4-7`, `workers=…` overrides |
 | `thread_uclamp.enabled` | per-thread uclamp (often rejected by firmware) |
 | `bc_fallback.enabled` | test the BC→ETC2 texture fallback on a GPU with BC support (`decode` inside: BC→RGBA) |
 | `descriptor_sets_compact.enabled` | force the 4-set descriptor layout (Mali workaround) on other GPUs |

@@ -111,8 +111,13 @@ if (WIN32)
 elseif (ANDROID)
     set(MARATHON_RECOMP_OS_CXX_SOURCES
         "os/android/logger_android.cpp"
+        "os/android/guest_waits_android.cpp"
         "os/android/media_android.cpp"
+        "os/android/overlay_android.cpp"
+        "os/android/performance_hint_android.cpp"
         "os/android/process_android.cpp"
+        "os/android/sampling_profiler_android.cpp"
+        "os/android/texture_cache_android.cpp"
         "os/android/storage_android.cpp"
         "os/android/thread_android.cpp"
         "os/android/thread_hints_android.cpp"

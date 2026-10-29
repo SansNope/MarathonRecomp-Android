@@ -6,6 +6,7 @@
 #include <kernel/function.h>
 #include <mod/mod_loader.h>
 #include <os/logger.h>
+#include <os/android/guest_waits_android.h>
 #include <user/config.h>
 #include <user/paths.h>
 #include <stdafx.h>
@@ -188,6 +189,7 @@ uint32_t XReadFile
     XOVERLAPPED* lpOverlapped
 )
 {
+    GUEST_WAIT_SCOPE(Io);
     uint32_t result = FALSE;
     if (lpOverlapped != nullptr)
     {

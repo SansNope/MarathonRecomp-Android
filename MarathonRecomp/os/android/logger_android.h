@@ -10,4 +10,8 @@ namespace os::android
     // Short description of what the current thread is doing (e.g. the pipeline being compiled),
     // printed by the crash reporter when a driver crashes inside that work. nullptr clears it.
     void SetCrashContext(const char* text);
+
+    // Writes one [switches] line with the launcher's marker files present in the game root, i.e.
+    // the switches that differ from the recommended settings. Needs the game root to be known.
+    void LogLauncherSwitches();
 }

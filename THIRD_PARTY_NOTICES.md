@@ -23,6 +23,7 @@ MarathonRecomp-Android is distributed under the **GNU General Public License v3.
 | stb | `thirdparty/stb` (submodule) | MIT or public domain |
 | unordered_dense | `thirdparty/unordered_dense` (submodule) | MIT |
 | ddspp | `thirdparty/ddspp` (submodule) | MIT |
+| xxHash (also hashes the v0.2.0 texture cache), fmt, zstd | `tools/XenonRecomp/thirdparty` (submodules of XenonRecomp) | BSD-2-Clause; MIT; BSD-3-Clause or GPL-2.0 (texts in `assets/licenses/`) |
 | msdf-atlas-gen / msdfgen | `thirdparty/msdf-atlas-gen` (submodule) | MIT |
 | MarathonRecompResources | `MarathonRecompResources` (submodule) | see the submodule |
 
@@ -39,7 +40,7 @@ FFmpeg is linked statically. The complete source of the application is this repo
 
 | Component | Where | License |
 |---|---|---|
-| XenonRecomp | `tools/XenonRecomp` (submodule) | MIT (`LICENSE.md`) |
+| XenonRecomp | `tools/XenonRecomp` (submodule) + `android/patches/xenonrecomp` (since v0.2.0) | MIT (`LICENSE.md`) |
 | XenosRecomp | `tools/XenosRecomp` (submodule) | MIT (`LICENSE.md`) |
 | zlib 1.3.2 (host u8extract) | downloaded by `Prepare-Dependencies.ps1` | zlib |
 | vcpkg | `thirdparty/vcpkg` (submodule) and `out/deps/vcpkg-ffmpeg` | MIT |

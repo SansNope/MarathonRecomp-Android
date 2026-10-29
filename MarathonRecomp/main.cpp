@@ -35,6 +35,12 @@
 
 #ifdef __ANDROID__
 #include <os/android/thread_hints_android.h>
+#include <os/android/guest_waits_android.h>
+#include <os/android/sampling_profiler_android.h>
+#include <os/android/overlay_android.h>
+#include <os/android/performance_hint_android.h>
+#include <os/android/main_thread_android.h>
+#include <os/android/logger_android.h>
 #endif
 
 #ifdef _WIN32
@@ -188,6 +194,9 @@ int main(int argc, char *argv[])
 {
 #ifdef _WIN32
     timeBeginPeriod(1);
+#endif
+#ifdef __ANDROID__
+    os::android::SetMainThread();
 #endif
 
     os::process::CheckConsole();
@@ -359,8 +368,14 @@ int main(int argc, char *argv[])
     LOGN_WARNING(modulePath.string());
 
 #ifdef __ANDROID__
+    os::android::LogLauncherSwitches();
+
     // The guest entry point runs on this (unnamed) thread.
     os::android::thread_hints::ApplyToMainThread();
+    os::android::waits::SetMainThread();
+    os::android::profiler::SampleCurrentThread("guest");
+    os::android::overlay::SetThread(os::android::overlay::Role::Guest, gettid());
+    os::android::hint::SetThread(os::android::hint::Role::Guest, gettid());
 #endif
 
     GuestThread::Start({ entry, 0, 0 });

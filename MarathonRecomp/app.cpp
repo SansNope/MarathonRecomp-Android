@@ -15,6 +15,7 @@
 #include <xxHashMap.h>
 #ifdef __ANDROID__
 #include <os/android/frame_diagnostics.h>
+#include <os/android/main_thread_android.h>
 #endif
 
 static std::thread::id g_mainThreadId = std::this_thread::get_id();
@@ -98,7 +99,12 @@ PPC_FUNC(sub_825EA610)
     // which SDL does not like. To prevent the OS from thinking
     // the process is unresponsive, we will flush while waiting
     // for the pipelines to finish compiling in video.cpp.
+#ifdef __ANDROID__
+    // On Android this also blocks the game while the activity is paused (SDL's block-on-pause).
+    if (os::android::IsMainThread())
+#else
     if (std::this_thread::get_id() == g_mainThreadId)
+#endif
     {
         SDL_PumpEvents();
         SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);

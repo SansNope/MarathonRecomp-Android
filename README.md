@@ -7,7 +7,7 @@
 > [!CAUTION]
 > - **This is not an official project.** It is an Android port of another project from GitHub, MarathonRecomp. It is not affiliated with the MarathonRecomp team (sonicnext-dev) or with SEGA. Please do not report Android problems to the upstream project.
 > - **No game files are included.** You need your own legally acquired copy of the Xbox 360 game, both to build and to play.
-> - **We do not promise that it works on every device.** It has been tested on two phones (see below). Other phones, GPUs and Android versions may not work, or may work worse.
+> - **We do not promise that it works on every device.** It has been tested on a few phones (see below). Other phones, GPUs and Android versions may not work, or may work worse.
 > - MarathonRecomp itself is still in active development and is not meant for public use yet; this port inherits that state.
 
 ## Status
@@ -15,11 +15,12 @@
 | Device | SoC / GPU | Android | Result |
 |---|---|---|---|
 | POCO F5 | Snapdragon 7+ Gen 2 (SM7475) / Adreno 725 | 17 | Menus, HUB with events, a boss, Wave Ocean (completed), Dusty Desert. Sound, touch controls and saves work. **60 FPS** in the HUB and in levels at 60 % render scale; short drops while scenes load. |
-| realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB with events and a level at **125 %** render scale, no errors; the tester describes the performance as excellent (not measured). |
+| Pixel 7 Pro | Google Tensor G2 (GS201) / Mali-G710 | 17 | Menus, HUB, levels, background and back (tester). v0.2.0: **45–55 FPS** in levels at 25 % render scale, **41–57 FPS** at 50 %, 60 FPS in menus (measured with the `[perf]` log); 60 FPS in levels is not reached yet. |
+| realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB with events and a level at **125 %** render scale, no errors; the tester describes the performance as excellent (not measured). Not re-tested since v0.1.0. |
 
-**Mali GPUs: the game starts and plays since v0.1.6** on Mali-G57 MC2 (Helio G99) and Mali-G710 (Pixel 7 Pro), but performance on Mali is not good yet — we are working on it (see [STATUS](docs/android/STATUS.md)).
+**Mali-G57 GPUs** (Helio G99, Unisoc T606): the game starts and plays since v0.1.6, but slowly (GPU-bound); not re-tested on v0.2.0. Recommended settings for each kind of phone are in the [v0.2.0 release notes](docs/android/RELEASE-v0.2.0.md#what-to-enable-and-for-whom).
 
-Not tested: other Adreno generations, Mali, Xclipse and PowerVR GPUs, Android 10–15, DLC, a full playthrough, physical gamepads, long sessions on battery. Details and known issues: [docs/android/STATUS.md](docs/android/STATUS.md).
+Not tested: other Adreno generations, other Mali GPUs, Xclipse and PowerVR GPUs, Android 10–15, DLC, a full playthrough, physical gamepads, long sessions on battery. Details and known issues: [docs/android/STATUS.md](docs/android/STATUS.md).
 
 ## What the port adds
 
@@ -28,14 +29,14 @@ Not tested: other Adreno generations, Mali, Xclipse and PowerVR GPUs, Android 10
 - **Vulkan drivers:** bundled Mesa Turnip builds for Adreno (selected automatically) and import of your own driver (`.so` or AdrenoTools/ExynosTools `.zip`), with automatic fallback after a failed driver start.
 - **Experimental Mali / PowerVR support** (from UnleashedRecomp-Android): system Vulkan driver, BC textures converted to ETC2/EAC on load.
 - **On-screen touch controls** with a layout editor.
-- **Android-specific performance work:** swap-chain pre-rotation (no extra GPU composition by the system), worker threads kept off the little CPU cores when the SoC has them, a tested set of XenonRecomp optimizations, render-scale handling that keeps the HUD at native resolution.
-- **Diagnostics:** `log.txt` with device info and a crash report, optional per-frame timing.
+- **Android-specific performance work:** swap-chain pre-rotation (no extra GPU composition by the system), game, render and worker threads kept off the little CPU cores when the SoC has them, a tested set of XenonRecomp optimizations including merged FPU rounding-mode switches, tile-friendly Vulkan render passes, shader pipeline and transcoded-texture caches on disk, render-scale handling that keeps the HUD at native resolution.
+- **Diagnostics:** `log.txt` with device info and a crash report; optional performance overlay, per-frame timing, CPU profiler and per-render-pass GPU timing.
 
 How and why each part was done: [docs/android/TECHNICAL.md](docs/android/TECHNICAL.md).
 
 ## Playing
 
-1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
+1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.2.0](docs/android/RELEASE-v0.2.0.md), [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Copy the game folder of your Xbox 360 copy to the phone and choose **Game files → Install game / DLC (.zip / folder)** in the launcher. The launcher shows when the game is ready and how many DLC packs were found.
 3. Press **Launch game**. On Adreno GPUs keep the driver on **Auto (recommended)** unless you know you need another one.
 

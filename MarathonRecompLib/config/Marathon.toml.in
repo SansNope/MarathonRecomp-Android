@@ -11,6 +11,7 @@ reserved_as_local = @XENON_RECOMP_RESERVED_AS_LOCAL@
 cr_as_local = @XENON_RECOMP_CR_AS_LOCAL@
 non_argument_as_local = @XENON_RECOMP_NON_ARGUMENT_AS_LOCAL@
 non_volatile_as_local = @XENON_RECOMP_NON_VOLATILE_AS_LOCAL@
+merge_rounding_overrides = @XENON_RECOMP_MERGE_ROUNDING@
 
 restgprlr_14_address = 0x826de8e0
 savegprlr_14_address = 0x826de890
