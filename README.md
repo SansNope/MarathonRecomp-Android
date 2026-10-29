@@ -18,7 +18,7 @@
 | Pixel 7 Pro | Google Tensor G2 (GS201) / Mali-G710 | 17 | Menus, HUB, levels, background and back (tester). v0.2.0: **45–55 FPS** in levels at 25 % render scale, **41–57 FPS** at 50 %, 60 FPS in menus (measured with the `[perf]` log); 60 FPS in levels is not reached yet. |
 | realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB with events and a level at **125 %** render scale, no errors; the tester describes the performance as excellent (not measured). Not re-tested since v0.1.0. |
 
-**Mali-G57 GPUs** (Helio G99, Unisoc T606): the game starts and plays since v0.1.6, but slowly (GPU-bound); not re-tested on v0.2.0. Recommended settings for each kind of phone are in the [v0.2.0 release notes](docs/android/RELEASE-v0.2.0.md#what-to-enable-and-for-whom).
+**Mali-G57 GPUs** (Helio G99, Unisoc T606): the game starts and plays since v0.1.6, but slowly (GPU-bound). On a Helio G99 phone v0.2.x reaches 43–67 FPS in levels at 25 % render scale with 512 shadows; loading screens and videos flicker there (not solved yet). Recommended settings for each kind of phone are in the [v0.2.0 release notes](docs/android/RELEASE-v0.2.0.md#what-to-enable-and-for-whom).
 
 Not tested: other Adreno generations, other Mali GPUs, Xclipse and PowerVR GPUs, Android 10–15, DLC, a full playthrough, physical gamepads, long sessions on battery. Details and known issues: [docs/android/STATUS.md](docs/android/STATUS.md).
 
@@ -36,7 +36,7 @@ How and why each part was done: [docs/android/TECHNICAL.md](docs/android/TECHNIC
 
 ## Playing
 
-1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.2.0](docs/android/RELEASE-v0.2.0.md), [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
+1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.2.1](docs/android/RELEASE-v0.2.1.md), [v0.2.0](docs/android/RELEASE-v0.2.0.md), [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Copy the game folder of your Xbox 360 copy to the phone and choose **Game files → Install game / DLC (.zip / folder)** in the launcher. The launcher shows when the game is ready and how many DLC packs were found.
 3. Press **Launch game**. On Adreno GPUs keep the driver on **Auto (recommended)** unless you know you need another one.
 

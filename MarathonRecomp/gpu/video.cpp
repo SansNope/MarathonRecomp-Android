@@ -7294,6 +7294,24 @@ static void ProcAddPipeline(const RenderCommand& cmd)
 static constexpr int32_t COMMON_DEPTH_BIAS_VALUE = int32_t((1 << 24) * 0.002f);
 static constexpr float COMMON_SLOPE_SCALED_DEPTH_BIAS_VALUE = 1.0f;
 
+// The game sometimes draws while no vertex declaration (or vertex shader) is set; seen as a
+// DrawPrimitiveUP while a level loaded on a Helio G99. Building a pipeline for that state reads
+// through the null pointer and crashes the render thread, so the draw is skipped instead. Each
+// kind of draw is logged once.
+static bool CanDrawWithPipelineState(const char* draw, std::atomic<uint32_t>& skipped)
+{
+    if (g_pipelineState.vertexDeclaration != nullptr && g_pipelineState.vertexShader != nullptr)
+        return true;
+
+    if (skipped.fetch_add(1, std::memory_order_relaxed) == 0)
+    {
+        LOGFN_WARNING("{} skipped: no {} is set (later skips of this kind are not logged).", draw,
+            g_pipelineState.vertexDeclaration == nullptr ? "vertex declaration" : "vertex shader");
+    }
+
+    return false;
+}
+
 static void FlushRenderStateForRenderThread()
 {
     auto renderTarget = g_pipelineState.colorWriteEnable ? g_renderTarget : nullptr;
@@ -7461,6 +7479,10 @@ static void ProcDrawPrimitive(const RenderCommand& cmd)
 {
     const auto& args = cmd.drawPrimitive;
 
+    static std::atomic<uint32_t> s_skipped;
+    if (!CanDrawWithPipelineState("DrawPrimitive", s_skipped))
+        return;
+
     SetPrimitiveType(args.primitiveType);
 
     FlushRenderStateForRenderThread();
@@ -7488,6 +7510,10 @@ static void ProcDrawIndexedPrimitive(const RenderCommand& cmd)
 {
     const auto& args = cmd.drawIndexedPrimitive;
 
+    static std::atomic<uint32_t> s_skipped;
+    if (!CanDrawWithPipelineState("DrawIndexedPrimitive", s_skipped))
+        return;
+
     SetPrimitiveType(args.primitiveType);
     FlushRenderStateForRenderThread();
 
@@ -7513,6 +7539,10 @@ static void DrawPrimitiveUP(GuestDevice* device, uint32_t primitiveType, uint32_
 static void ProcDrawPrimitiveUP(const RenderCommand& cmd)
 {
     const auto& args = cmd.drawPrimitiveUP;
+
+    static std::atomic<uint32_t> s_skipped;
+    if (!CanDrawWithPipelineState("DrawPrimitiveUP", s_skipped))
+        return;
 
     SetPrimitiveType(args.primitiveType);
     SetDirtyValue(g_dirtyStates.pipelineState, g_pipelineState.vertexStrides[0], uint8_t(args.vertexStreamZeroStride));

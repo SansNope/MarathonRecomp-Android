@@ -37,10 +37,11 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Going to the background and back (Vulkan surface recreated).
 - Performance described by the tester as excellent; not measured.
 
-### Mali-G57 (testers, development builds of v0.1.6; not re-tested on v0.2.0)
+### Mali-G57 (testers)
 
-- **Helio G99, Mali-G57 MC2 — Samsung Galaxy Tab A9 (Android 15) and an OPPO phone (Android 16):** starts and plays; the graphics artifacts of the earlier test builds are gone. With render scale 50 %: 27–49 FPS in levels at a 120 FPS cap, limited by the GPU (20–24 ms per frame). At a 30 FPS cap the game itself slowed down (0.3× speed) — caps below 60 are no longer offered since v0.2.0.
-- **Unisoc T606, Mali-G57 MP1 — Motorola moto g04s (Android 14):** starts and plays; 10–18 FPS in levels at 100 % render scale, limited by the single-core GPU.
+- **Helio G99, Mali-G57 MC2 — Samsung Galaxy Tab A9 (Android 15) and an OPPO phone (Android 16), v0.1.6:** starts and plays; the graphics artifacts of the earlier test builds are gone. With render scale 50 %: 27–49 FPS in levels at a 120 FPS cap, limited by the GPU (20–24 ms per frame). At a 30 FPS cap the game itself slowed down (0.3× speed) — caps below 60 are no longer offered since v0.2.0.
+- **Helio G99, Mali-G57 MC2 — TECNO KJ7 (Android 14, old Vulkan 1.1 driver), v0.2.0/0.2.1 (tester):** plays; GPU-bound. Render scale 25 %: 35–56 FPS in levels with 1024 shadows, 43–67 FPS (median 54) with *Shadow Resolution* 512. One render-thread crash while a level loaded on v0.2.0 (fixed defensively in v0.2.1). **Loading screens and videos flicker** (cause not found yet).
+- **Unisoc T606, Mali-G57 MP1 — Motorola moto g04s (Android 14), v0.1.6:** starts and plays; 10–18 FPS in levels at 100 % render scale, limited by the single-core GPU.
 - The system Vulkan driver is used, textures are converted to ETC2, `ClipDistance` is removed from the shaders, and the compact descriptor layout (4 descriptor sets) is used.
 
 ## What works
@@ -62,6 +63,8 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - **Anti-aliasing option** — disabled in the in-game menu by upstream MarathonRecomp (not implemented); MSAA is off.
 - **Bluetooth controllers through SDL HIDAPI** — the app does not request `BLUETOOTH_CONNECT`; controllers handled by Android itself are expected to work but were not tested.
 - **The first run of each scene** may stutter while Vulkan pipelines are created; since v0.2.0 they are kept in a cache on disk for later launches.
+- **Helio G99 / Mali-G57: loading screens and videos flicker** (since v0.2.0, also at a 60 FPS cap); not found yet.
+- **Graphics artifacts reported on an Adreno 830 phone** with v0.2.0; details not known yet.
 - **Adreno 610 (Snapdragon 680)** — broken 2D title/menu graphics reported with the default driver ([#2](https://github.com/SansNope/MarathonRecomp-Android/issues/2)); not investigated yet.
 - **Performance on Mali** — the Pixel 7 Pro (Mali-G710) reaches 41–57 FPS in levels but not 60; Mali-G57 devices are much slower. Turn on *Performance log* in the launcher and attach `log.txt`.
 - **Frame-rate caps below 60** are not offered on Android since v0.2.0: the game slowed down at 30 FPS (upstream's frame-rate fixes only cover caps above 60).
@@ -72,7 +75,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 ## Not tested
 
 - Other Adreno generations (6xx, 7xx other than 725, 8xx other than 830).
-- v0.2.0 on the realme RMX5090 and on Mali-G57 devices.
+- v0.2.0/0.2.1 on the realme RMX5090.
 - Mali GPUs other than G57 MC2/MP1 and G710 (see above). Bifrost GPUs (G31, G51, G52, G71, G72, G76) are not supported.
 - Xclipse (Samsung) and PowerVR GPUs (the system Vulkan driver is used there; the same texture fallback applies).
 - Android 10–15.

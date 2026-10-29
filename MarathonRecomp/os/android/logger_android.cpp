@@ -10,7 +10,15 @@
 #include <vector>
 
 #include <dlfcn.h>
+#include <elf.h>
 #include <fcntl.h>
+#include <jni.h>
+#include <link.h>
+
+// Not declared by bionic's <elf.h>.
+#ifndef NT_GNU_BUILD_ID
+#define NT_GNU_BUILD_ID 3
+#endif
 #include <signal.h>
 #include <unistd.h>
 #include <sys/mman.h>
@@ -504,6 +512,116 @@ static void InstallCrashHandler()
 // Put the model, SoC, Android version, GPU HAL, page size and RAM at the top of every
 // log so a bare log.txt is enough to tell which hardware a report belongs to.
 
+// versionName and versionCode of the installed APK, read through the activity's PackageManager.
+// Empty when JNI is not available yet or a call fails.
+static std::string QueryAppVersion()
+{
+    auto env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    if (env == nullptr || env->PushLocalFrame(16) != JNI_OK)
+        return {};
+
+    std::string result;
+    const auto failed = [env]()
+    {
+        if (!env->ExceptionCheck())
+            return false;
+
+        env->ExceptionClear();
+        return true;
+    };
+
+    auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
+    if (activity != nullptr)
+    {
+        jclass contextClass = env->GetObjectClass(activity);
+        jmethodID getPackageManager = env->GetMethodID(contextClass, "getPackageManager", "()Landroid/content/pm/PackageManager;");
+        jmethodID getPackageName = env->GetMethodID(contextClass, "getPackageName", "()Ljava/lang/String;");
+        jobject packageManager = failed() ? nullptr : env->CallObjectMethod(activity, getPackageManager);
+        jobject packageName = failed() ? nullptr : env->CallObjectMethod(activity, getPackageName);
+
+        if (!failed() && packageManager != nullptr && packageName != nullptr)
+        {
+            jmethodID getPackageInfo = env->GetMethodID(env->GetObjectClass(packageManager), "getPackageInfo",
+                "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;");
+            jobject packageInfo = failed() ? nullptr : env->CallObjectMethod(packageManager, getPackageInfo, packageName, 0);
+
+            if (!failed() && packageInfo != nullptr)
+            {
+                jclass infoClass = env->GetObjectClass(packageInfo);
+                jfieldID nameField = env->GetFieldID(infoClass, "versionName", "Ljava/lang/String;");
+                jfieldID codeField = failed() ? nullptr : env->GetFieldID(infoClass, "versionCode", "I");
+
+                if (!failed() && nameField != nullptr && codeField != nullptr)
+                {
+                    auto name = static_cast<jstring>(env->GetObjectField(packageInfo, nameField));
+                    const char* chars = name != nullptr ? env->GetStringUTFChars(name, nullptr) : nullptr;
+                    result = fmt::format("version={} code={}", chars != nullptr ? chars : "?", env->GetIntField(packageInfo, codeField));
+                    if (chars != nullptr)
+                        env->ReleaseStringUTFChars(name, chars);
+                }
+            }
+        }
+    }
+
+    failed();
+    env->PopLocalFrame(nullptr);
+    return result;
+}
+
+// GNU build ID of libmain.so, to match a log with the symbols saved for that build.
+static std::string LibraryBuildId()
+{
+    struct Search
+    {
+        uintptr_t address;
+        std::string id;
+    } search{ reinterpret_cast<uintptr_t>(&LibraryBuildId), {} };
+
+    dl_iterate_phdr([](dl_phdr_info* info, size_t, void* data) -> int
+    {
+        auto& search = *static_cast<Search*>(data);
+        bool contains = false;
+        for (ElfW(Half) i = 0; i < info->dlpi_phnum && !contains; i++)
+        {
+            const auto& header = info->dlpi_phdr[i];
+            const uintptr_t start = info->dlpi_addr + header.p_vaddr;
+            contains = header.p_type == PT_LOAD && search.address >= start && search.address < start + header.p_memsz;
+        }
+
+        if (!contains)
+            return 0;
+
+        for (ElfW(Half) i = 0; i < info->dlpi_phnum; i++)
+        {
+            const auto& header = info->dlpi_phdr[i];
+            if (header.p_type != PT_NOTE)
+                continue;
+
+            auto note = reinterpret_cast<const uint8_t*>(info->dlpi_addr + header.p_vaddr);
+            const uint8_t* end = note + header.p_memsz;
+            while (note + sizeof(ElfW(Nhdr)) <= end)
+            {
+                const auto* noteHeader = reinterpret_cast<const ElfW(Nhdr)*>(note);
+                const uint8_t* name = note + sizeof(ElfW(Nhdr));
+                const uint8_t* desc = name + ((noteHeader->n_namesz + 3) & ~3u);
+                if (noteHeader->n_type == NT_GNU_BUILD_ID && noteHeader->n_namesz == 4 && memcmp(name, "GNU", 4) == 0 && desc + noteHeader->n_descsz <= end)
+                {
+                    for (uint32_t byte = 0; byte < noteHeader->n_descsz; byte++)
+                        search.id += fmt::format("{:02x}", desc[byte]);
+
+                    return 1;
+                }
+
+                note = desc + ((noteHeader->n_descsz + 3) & ~3u);
+            }
+        }
+
+        return 1;
+    }, &search);
+
+    return search.id;
+}
+
 static void LogDeviceInfo()
 {
     const char* properties[][2] =
@@ -538,6 +656,11 @@ static void LogDeviceInfo()
     }
 
     WriteLogRecord("[device]", nullptr, line, strlen(line));
+
+    const std::string version = QueryAppVersion();
+    const std::string buildId = LibraryBuildId();
+    const std::string app = fmt::format("{} build_id={}", version.empty() ? "version=?" : version, buildId.empty() ? "?" : buildId);
+    WriteLogRecord("[app]", nullptr, app.c_str(), app.size());
 
     struct utsname kernel{};
     if (uname(&kernel) == 0)

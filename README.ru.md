@@ -18,7 +18,7 @@
 | Pixel 7 Pro | Google Tensor G2 (GS201) / Mali-G710 | 17 | Меню, HUB, уровни, уход в фон и возврат (тестировщик). v0.2.0: **45–55 FPS** на уровнях при разрешении рендера 25 %, **41–57 FPS** при 50 %, 60 FPS в меню (замеры логом `[perf]`); 60 FPS на уровнях пока не достигается. |
 | realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB с событиями и уровень при разрешении рендера **125 %**, без ошибок; производительность по оценке тестировщика отличная (не замерялась). С v0.1.0 не перепроверялся. |
 
-**GPU Mali-G57** (Helio G99, Unisoc T606): с v0.1.6 игра запускается и играется, но медленно (упор в GPU); на v0.2.0 не перепроверялись. Рекомендуемые настройки для разных телефонов — в [описании v0.2.0](docs/android/RELEASE-v0.2.0.md#что-и-кому-включать).
+**GPU Mali-G57** (Helio G99, Unisoc T606): с v0.1.6 игра запускается и играется, но медленно (упор в GPU). На телефоне с Helio G99 версия v0.2.x даёт 43–67 FPS на уровнях при масштабе 25 % и тенях 512; там мерцают загрузочные экраны и ролики (пока не решено). Рекомендуемые настройки для разных телефонов — в [описании v0.2.0](docs/android/RELEASE-v0.2.0.md#что-и-кому-включать).
 
 Не проверено: другие поколения Adreno, другие GPU Mali, Xclipse и PowerVR, Android 10–15, DLC, полное прохождение, физические геймпады, долгая игра от батареи. Подробности и известные проблемы: [docs/android/STATUS.ru.md](docs/android/STATUS.ru.md).
 
@@ -36,7 +36,7 @@
 
 ## Как играть
 
-1. Скачайте APK из [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest) или [соберите самостоятельно](docs/android/BUILDING.ru.md) и установите его. Описание релизов: [v0.2.0](docs/android/RELEASE-v0.2.0.md), [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
+1. Скачайте APK из [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest) или [соберите самостоятельно](docs/android/BUILDING.ru.md) и установите его. Описание релизов: [v0.2.1](docs/android/RELEASE-v0.2.1.md), [v0.2.0](docs/android/RELEASE-v0.2.0.md), [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Скопируйте папку игры из своей копии для Xbox 360 на телефон и выберите в лаунчере **«Файлы игры» → «Установить игру / DLC (.zip / папка)»**. Лаунчер покажет, что игра готова, и сколько DLC найдено.
 3. Нажмите **«Запустить игру»**. На Adreno оставьте драйвер **«Авто (рекомендуется)»**, если не знаете точно, что нужен другой.
 
