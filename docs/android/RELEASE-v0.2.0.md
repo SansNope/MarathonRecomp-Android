@@ -70,6 +70,10 @@ Not re-tested on this version: realme RMX5090 (Snapdragon 8 Elite), Helio G99 / 
 - **Adreno 610 (Snapdragon 680)** — broken 2D graphics on the title screen ([#2](https://github.com/SansNope/MarathonRecomp-Android/issues/2)).
 - Bifrost Mali GPUs (G31, G51, G52, G71, G72, G76) are not supported.
 
+## Thanks
+
+Special thanks to [Foxyexe](https://github.com/Foxyexe) for the help with testing.
+
 Thanks to the Pixel 7 Pro and Mali testers for the many logs.
 
 ---
@@ -145,5 +149,9 @@ Thanks to the Pixel 7 Pro and Mali testers for the many logs.
 - **Просадки при загрузках** — переходы между сценами на несколько секунд снижают FPS; первые загрузки на Mali медленнее (перекодирование текстур, дальше — из кэша).
 - **Adreno 610 (Snapdragon 680)** — сломанная 2D-графика на титульном экране ([#2](https://github.com/SansNope/MarathonRecomp-Android/issues/2)).
 - Mali поколения Bifrost (G31, G51, G52, G71, G72, G76) не поддерживаются.
+
+### Благодарности
+
+Отдельное спасибо [Foxyexe](https://github.com/Foxyexe) за помощь в тестировании.
 
 Спасибо тестировщикам Pixel 7 Pro и Mali за множество логов.
