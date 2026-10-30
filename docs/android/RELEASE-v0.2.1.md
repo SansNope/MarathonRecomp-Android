@@ -16,11 +16,11 @@
 
 - **POCO F5** (Adreno 725): the 0.2.1 test build — game starts and plays, 60 FPS in levels, the `[app]` line is correct.
 - **TECNO KJ7** (Helio G99, Mali-G57 MC2, tester): the 0.2.1 test build — played without a crash (the crash did not happen again, so the skipped-draw line did not appear either).
+- **realme RMX5090** (Snapdragon 8 Elite, Adreno 830): the graphics artifacts seen with v0.1.6 no longer appear on v0.2.x. Their cause in v0.1.6 was not determined.
 
 ## Known issues
 
 - **Helio G99: loading screens and videos flicker** since v0.2.0 (reported by a tester, also with a 60 FPS cap). Not found yet; we are looking into it.
-- **Graphics artifacts were reported on an Adreno 830 phone** with v0.2.0; details are not known yet.
 - Everything listed for [v0.2.0](RELEASE-v0.2.0.md#known-issues).
 
 ---
@@ -43,9 +43,9 @@
 
 - **POCO F5** (Adreno 725): тестовая сборка 0.2.1 — игра запускается и играется, 60 FPS на уровнях, строка `[app]` правильная.
 - **TECNO KJ7** (Helio G99, Mali-G57 MC2, тестировщик): тестовая сборка 0.2.1 — игра без падений (падение не повторилось, поэтому и строки о пропуске отрисовки в логе нет).
+- **realme RMX5090** (Snapdragon 8 Elite, Adreno 830): артефакты графики, которые были на v0.1.6, на v0.2.x больше не появляются. Причина артефактов в v0.1.6 так и не была установлена.
 
 ### Известные проблемы
 
 - **Helio G99: мерцают загрузочные экраны и ролики** с v0.2.0 (сообщил тестировщик, в том числе при лимите 60 FPS). Причина пока не найдена, разбираемся.
-- **Сообщают об артефактах графики на телефоне с Adreno 830** на v0.2.0; подробностей пока нет.
 - Всё, что перечислено для [v0.2.0](RELEASE-v0.2.0.md#known-issues).

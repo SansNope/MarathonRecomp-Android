@@ -16,7 +16,7 @@
 |---|---|---|---|
 | POCO F5 | Snapdragon 7+ Gen 2 (SM7475) / Adreno 725 | 17 | Menus, HUB with events, a boss, Wave Ocean (completed), Dusty Desert. Sound, touch controls and saves work. **60 FPS** in the HUB and in levels at 60 % render scale; short drops while scenes load. |
 | Pixel 7 Pro | Google Tensor G2 (GS201) / Mali-G710 | 17 | Menus, HUB, levels, background and back (tester). v0.2.0: **45–55 FPS** in levels at 25 % render scale, **41–57 FPS** at 50 %, 60 FPS in menus (measured with the `[perf]` log); 60 FPS in levels is not reached yet. |
-| realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB with events and a level at **125 %** render scale, no errors; the tester describes the performance as excellent (not measured). Not re-tested since v0.1.0. |
+| realme RMX5090 | Snapdragon 8 Elite (SM8750) / Adreno 830 | 16 | HUB with events and a level at **125 %** render scale, no errors; the tester describes the performance as excellent (not measured). The graphics artifacts seen with v0.1.6 no longer appear on v0.2.x (their cause was not determined). |
 
 **Mali-G57 GPUs** (Helio G99, Unisoc T606): the game starts and plays since v0.1.6, but slowly (GPU-bound). On a Helio G99 phone v0.2.x reaches 43–67 FPS in levels at 25 % render scale with 512 shadows; loading screens and videos flicker there (not solved yet). Recommended settings for each kind of phone are in the [v0.2.0 release notes](docs/android/RELEASE-v0.2.0.md#what-to-enable-and-for-whom).
 

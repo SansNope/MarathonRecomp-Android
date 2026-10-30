@@ -36,6 +36,7 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - Render scale above 100 % (scene 3474×1579 on a 2780×1264 screen).
 - Going to the background and back (Vulkan surface recreated).
 - Performance described by the tester as excellent; not measured.
+- v0.2.x: the graphics artifacts seen with v0.1.6 no longer appear. Their cause in v0.1.6 was not determined.
 
 ### Mali-G57 (testers)
 
@@ -64,7 +65,6 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 - **Bluetooth controllers through SDL HIDAPI** — the app does not request `BLUETOOTH_CONNECT`; controllers handled by Android itself are expected to work but were not tested.
 - **The first run of each scene** may stutter while Vulkan pipelines are created; since v0.2.0 they are kept in a cache on disk for later launches.
 - **Helio G99 / Mali-G57: loading screens and videos flicker** (since v0.2.0, also at a 60 FPS cap); not found yet.
-- **Graphics artifacts reported on an Adreno 830 phone** with v0.2.0; details not known yet.
 - **Adreno 610 (Snapdragon 680)** — broken 2D title/menu graphics reported with the default driver ([#2](https://github.com/SansNope/MarathonRecomp-Android/issues/2)); not investigated yet.
 - **Performance on Mali** — the Pixel 7 Pro (Mali-G710) reaches 41–57 FPS in levels but not 60; Mali-G57 devices are much slower. Turn on *Performance log* in the launcher and attach `log.txt`.
 - **Frame-rate caps below 60** are not offered on Android since v0.2.0: the game slowed down at 30 FPS (upstream's frame-rate fixes only cover caps above 60).
@@ -75,7 +75,6 @@ Settings: driver Auto (selects the Adreno 8xx build), render scale 125 %, VSync,
 ## Not tested
 
 - Other Adreno generations (6xx, 7xx other than 725, 8xx other than 830).
-- v0.2.0/0.2.1 on the realme RMX5090.
 - Mali GPUs other than G57 MC2/MP1 and G710 (see above). Bifrost GPUs (G31, G51, G52, G71, G72, G76) are not supported.
 - Xclipse (Samsung) and PowerVR GPUs (the system Vulkan driver is used there; the same texture fallback applies).
 - Android 10–15.
