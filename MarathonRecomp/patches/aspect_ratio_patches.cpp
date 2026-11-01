@@ -1347,6 +1347,17 @@ PPC_FUNC(sub_8264CC90)
 
     float width, height, left, right, top, bottom;
 
+    MovieModifier movieModifier{};
+
+    if (const auto pMovieModifier = FindHash(g_movieModifiers, movieNameHash))
+        movieModifier = *pMovieModifier;
+
+    if ((movieModifier.Flags & MOVIE_BGM) != 0)
+    {
+        if (const auto pAudioEngine = Sonicteam::AudioEngineXenon::GetInstance())
+            pMovieObjectWmv->SetVolume(pAudioEngine->m_MusicVolume);
+    }
+
     if (s_movieUsesCustomDimensions)
     {
         auto movieRectLeft = s_movieLeft;
@@ -1382,11 +1393,6 @@ PPC_FUNC(sub_8264CC90)
     {
         width = 2.0f;
         height = 2.0f;
-
-        MovieModifier movieModifier{};
-
-        if (const auto pMovieModifier = FindHash(g_movieModifiers, movieNameHash))
-            movieModifier = *pMovieModifier;
 
         if (g_aspectRatio > g_aspectRatioMovie)
         {
@@ -2309,6 +2315,6 @@ std::optional<CsdModifier> FindCsdModifier(uint32_t data)
 
 const xxHashMap<MovieModifier> g_movieModifiers =
 {
-    { HashStr("sound\\title_loop_GBn.wmv"), { MOVIE_CROP_NARROW } }
+    { HashStr("sound\\title_loop_GBn.wmv"), { MOVIE_CROP_NARROW | MOVIE_BGM } }
 };
 
