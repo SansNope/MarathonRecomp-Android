@@ -36,7 +36,7 @@ How and why each part was done: [docs/android/TECHNICAL.md](docs/android/TECHNIC
 
 ## Playing
 
-1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.2.2](docs/android/RELEASE-v0.2.2.md), [v0.2.1](docs/android/RELEASE-v0.2.1.md), [v0.2.0](docs/android/RELEASE-v0.2.0.md), [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
+1. Download the APK from [GitHub Releases](https://github.com/SansNope/MarathonRecomp-Android/releases/latest), or [build it yourself](docs/android/BUILDING.md), and install it. Release notes: [v0.2.3](docs/android/RELEASE-v0.2.3.md), [v0.2.2](docs/android/RELEASE-v0.2.2.md), [v0.2.1](docs/android/RELEASE-v0.2.1.md), [v0.2.0](docs/android/RELEASE-v0.2.0.md), [v0.1.6](docs/android/RELEASE-v0.1.6.md), [v0.1.5](docs/android/RELEASE-v0.1.5.md), [v0.1.0](docs/android/RELEASE-v0.1.0.md).
 2. Copy the game folder of your Xbox 360 copy to the phone and choose **Game files → Install game / DLC (.zip / folder)** in the launcher. The launcher shows when the game is ready and how many DLC packs were found.
 3. Press **Launch game**. On Adreno GPUs keep the driver on **Auto (recommended)** unless you know you need another one.
 
