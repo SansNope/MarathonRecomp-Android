@@ -665,6 +665,9 @@ static std::unique_ptr<RenderQueryPool> g_passQueryPools[NUM_FRAMES];
 #endif
 static bool g_commandListStates[NUM_FRAMES];
 
+static std::unique_ptr<RenderCommandList> g_waitCommandList;
+static std::unique_ptr<RenderCommandFence> g_waitCommandFence;
+
 static Mutex g_copyMutex;
 static std::unique_ptr<RenderCommandQueue> g_copyQueue;
 static std::unique_ptr<RenderCommandList> g_copyCommandList;
@@ -3192,6 +3195,9 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     }
 #endif
 
+    g_waitCommandList = g_queue->createCommandList();
+    g_waitCommandFence = g_device->createCommandFence();
+
     g_copyQueue = g_device->createCommandQueue(RenderCommandListType::COPY);
     g_copyCommandList = g_copyQueue->createCommandList();
     g_copyCommandFence = g_device->createCommandFence();
@@ -3528,10 +3534,10 @@ void Video::WaitForGPU()
     }
 
     // Execute an empty command list and wait for it to end to guarantee that any remaining presentation has finished.
-    g_commandLists[0]->begin();
-    g_commandLists[0]->end();
-    g_queue->executeCommandLists(g_commandLists[0].get(), g_commandFences[0].get());
-    g_queue->waitForCommandFence(g_commandFences[0].get());
+    g_waitCommandList->begin();
+    g_waitCommandList->end();
+    g_queue->executeCommandLists(g_waitCommandList.get(), g_waitCommandFence.get());
+    g_queue->waitForCommandFence(g_waitCommandFence.get());
 }
 
 static uint32_t getSetAddress(uint32_t base, int index) {
