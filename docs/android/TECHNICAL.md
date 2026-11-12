@@ -84,14 +84,14 @@ Measured from testers' `log.txt` files (`[perf]`, the CPU profiler, `[waits]`/`[
 | File | Effect |
 |---|---|
 | `overlay.enabled` | performance overlay (launcher: *Performance monitor*) |
-| `perf_capture.enabled` | `[perf]` line every 2 seconds plus `[waits]`, `[wakers]`, `[gpu-passes]`, `[gpu-frame]`, `[texture-cache]` summaries (launcher: *Performance log*). v0.1.6 created it automatically; since v0.2.0 the launcher removes that automatic file |
+| `perf_capture.enabled` | `[perf]` line every 2 seconds plus `[waits]`, `[wakers]`, `[gpu-passes]`, `[gpu-frame]`, `[texture-cache]` summaries (launcher: *Performance log*). v0.1.6 created it automatically; since v0.2.0 the launcher removes that automatic file. Since v0.2.4 every log has an `[fps]` line once a minute without this switch |
 | `perf_sampling.enabled` | CPU profiler of the game thread: `[prof]`, `[threads]`, `[cpufreq]` every 20 seconds (launcher: *CPU profiler*) |
 | `pipeline_cache.disabled` | no Vulkan pipeline cache on disk (`cache/pipeline_cache.bin`) |
 | `thread_affinity.disabled` | no thread pinning (launcher: *Keep game threads on fast cores*) |
 | `thread_affinity.enabled` | `cpus=4-7`, `workers=…`, `main_render=0` overrides |
 | `thread_affinity_main_strongest.enabled` | experiment: the main game thread only on the cores with the highest capacity (needs at least two) |
 | `performance_hint.disabled` | no ADPF performance-hint session |
-| `render_pass_optimizations.disabled` | Vulkan render passes as before v0.2.0 (no load-op clears, full barrier masks) |
+| `render_pass_optimizations.disabled` | Vulkan render passes as before v0.2.0 (no load-op clears, full barrier masks; since v0.2.4 also: the screen image is loaded before the final pass again) |
 | `texture_cache.disabled` | no cache of BC→ETC2 converted textures |
 | `triple_buffering.enabled` | experiment: request 3 swap-chain images (drivers usually give more anyway) |
 | `precise_frame_limiter.enabled` | experiment: the frame limiter sleeps until 0.5 ms before the deadline instead of 2 ms |

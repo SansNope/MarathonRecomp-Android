@@ -605,6 +605,64 @@ struct AndroidFrameDiagnostics
 
 static thread_local AndroidFrameDiagnostics g_androidFrameDiagnostics;
 
+// One [fps] line a minute in every log, with or without perf_capture.enabled, so a tester's log
+// always shows the frame rate. Frames longer than a second (the app in the background, a long
+// load) are counted but left out of the averages. Only the presenting thread touches it.
+struct AndroidFrameRateSummary
+{
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point last{}, windowStart{};
+    uint32_t frames = 0, slowFrames = 0, longFrames = 0;
+    double frameSum = 0.0, frameMax = 0.0, gpuSum = 0.0, gpuMax = 0.0;
+
+    void Frame()
+    {
+        const auto now = Clock::now();
+        if (last.time_since_epoch().count() == 0)
+        {
+            last = windowStart = now;
+            return;
+        }
+
+        const double ms = std::chrono::duration<double, std::milli>(now - last).count();
+        last = now;
+        if (ms > 1000.0)
+        {
+            ++longFrames;
+        }
+        else
+        {
+            ++frames;
+            frameSum += ms;
+            frameMax = std::max(frameMax, ms);
+            slowFrames += ms > 100.0 ? 1 : 0;
+
+            const double gpuMs = g_gpuFrameProfiler.value.load();
+            gpuSum += gpuMs;
+            gpuMax = std::max(gpuMax, gpuMs);
+        }
+
+        if (now - windowStart < std::chrono::seconds(60))
+            return;
+
+        if (frames != 0)
+        {
+            const double n = double(frames);
+            const int32_t cap = Config::FPS;
+            LOGFN("[fps] {:.0f} s: {} frames, {:.1f} FPS, frame {:.2f} ms (worst {:.1f}), {} over 100 ms, {} over 1 s; GPU {:.2f} ms (max {:.1f}); scale {:.2f}, cap {}.",
+                std::chrono::duration<double>(now - windowStart).count(), frames, 1000.0 * n / frameSum, frameSum / n, frameMax,
+                slowFrames, longFrames, gpuSum / n, gpuMax, float(Config::ResolutionScale),
+                cap >= FPS_MAX ? std::string("off") : std::to_string(cap));
+        }
+
+        frames = slowFrames = longFrames = 0;
+        frameSum = frameMax = gpuSum = gpuMax = 0.0;
+        windowStart = now;
+    }
+};
+
+static AndroidFrameRateSummary g_androidFrameRateSummary;
+
 void os::android::perf::BeginDocUpdate()
 {
     auto& diagnostics = g_androidFrameDiagnostics;
@@ -3066,6 +3124,31 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
             g_capabilities.textureCompressionBC, g_capabilities.textureCompressionETC2, g_capabilities.samplerMirrorClampToEdge,
             g_capabilities.presentWait, g_capabilities.triangleFan, g_capabilities.maxSampledImageDescriptors,
             g_capabilities.maxSamplerDescriptors, g_capabilities.maxTextureSize, deviceInfo.dedicatedVideoMemory / (1024 * 1024));
+
+        // What the device can do with the formats of the game's textures and render targets; a
+        // missing letter (linear filtering of a float or depth format, blending) is a lead for
+        // rendering differences between GPUs.
+        static constexpr std::pair<RenderFormat, const char*> formats[] =
+        {
+            { RenderFormat::R8_UNORM, "R8" },
+            { RenderFormat::R8G8B8A8_UNORM, "RGBA8" },
+            { RenderFormat::B8G8R8A8_UNORM, "BGRA8" },
+            { RenderFormat::R16G16_FLOAT, "RG16F" },
+            { RenderFormat::R16G16B16A16_FLOAT, "RGBA16F" },
+            { RenderFormat::R32_FLOAT, "R32F" },
+            { RenderFormat::D32_FLOAT, "D32F" },
+            { RenderFormat::D32_FLOAT_S8_UINT, "D32F_S8" },
+        };
+
+        std::string formatText;
+        for (const auto& [format, name] : formats)
+        {
+            const RenderFormatSupport support = g_device->getFormatSupport(format);
+            formatText += fmt::format(" {}={}{}{}{}{}", name, support.sampled ? 'S' : '-', support.linearFilter ? 'L' : '-',
+                support.renderTarget ? 'T' : '-', support.blend ? 'B' : '-', support.depthStencil ? 'D' : '-');
+        }
+
+        LOGF("GPU formats (S sampled, L linear filter, T render target, B blend, D depth-stencil):{}.", formatText);
     }
 
 #ifdef __ANDROID__
@@ -4812,6 +4895,7 @@ void Video::Present()
 #ifdef __ANDROID__
     if (diagnostics.enabled) perfPacing = AndroidFrameDiagnostics::Milliseconds(perfMark, AndroidFrameDiagnostics::Clock::now());
     diagnostics.End(perfRenderWait, perfPresent, perfFence, perfPacing);
+    g_androidFrameRateSummary.Frame();
     s_hintWorkStart = HintNowNs();
     g_hintDisplayWaitNs = 0;
 #endif
@@ -5147,6 +5231,10 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
             commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
             SetRootDescriptor(g_uploadAllocators[g_frame].allocate<false>(&constants, sizeof(constants), 0x100), 2);
             commandList->setFramebuffer(framebuffer.get());
+            // The draw below writes every pixel of the swap chain image, so its old contents are
+            // not loaded (a tile-based GPU would otherwise read the whole image back first).
+            // Follows render_pass_optimizations.disabled like the load-op clears.
+            commandList->discardColorAttachment(0);
             commandList->setViewports(RenderViewport(0.0f, 0.0f, swapChainTextureWidth, swapChainTextureHeight));
             commandList->setScissors(RenderRect(0, 0, swapChainTextureWidth, swapChainTextureHeight));
             commandList->drawInstanced(6, 1, 0, 0);
@@ -7323,6 +7411,34 @@ static void FlushRenderStateForRenderThread()
     auto renderTarget = g_pipelineState.colorWriteEnable ? g_renderTarget : nullptr;
     auto depthStencil = g_pipelineState.zEnable || g_pipelineState.stencilEnable ? g_depthStencil : nullptr;
 
+    // With ResolutionScale the scene depth is smaller than the full-size back buffer, and such a
+    // pair cannot form a framebuffer. The draw then runs without depth (the game's back buffer
+    // passes are 2D), and its pipeline is built without the depth and stencil tests too: a
+    // pipeline with a depth format is not compatible with a render pass that has no depth.
+    static bool s_depthDropped = false;
+    const bool depthDropped = renderTarget != nullptr && depthStencil != nullptr &&
+        (depthStencil->width < renderTarget->width || depthStencil->height < renderTarget->height);
+
+    if (depthDropped)
+    {
+        static bool s_loggedDepthDropped;
+        if (!s_loggedDepthDropped)
+        {
+            LOGF_WARNING("Depth stencil {}x{} is smaller than render target {}x{}; drawing without depth and stencil tests.",
+                depthStencil->width, depthStencil->height, renderTarget->width, renderTarget->height);
+            s_loggedDepthDropped = true;
+        }
+
+        depthStencil = nullptr;
+    }
+
+    // The targets can change without any pipeline state changing, so the switch itself is dirty.
+    if (depthDropped != s_depthDropped)
+    {
+        s_depthDropped = depthDropped;
+        g_dirtyStates.pipelineState = true;
+    }
+
     bool foundAny = PopulateBarriersForStretchRect(renderTarget, depthStencil);
 
     auto aliasesBoundStorage = [&](GuestSurface* surface)
@@ -7396,7 +7512,17 @@ static void FlushRenderStateForRenderThread()
 
     if (g_dirtyStates.pipelineState)
     {
-        commandList->setPipeline(CreateGraphicsPipelineInRenderThread(g_pipelineState));
+        if (depthDropped)
+        {
+            PipelineState pipelineState = g_pipelineState;
+            pipelineState.zEnable = false;
+            pipelineState.stencilEnable = false;
+            commandList->setPipeline(CreateGraphicsPipelineInRenderThread(pipelineState));
+        }
+        else
+        {
+            commandList->setPipeline(CreateGraphicsPipelineInRenderThread(g_pipelineState));
+        }
 
         // D3D12 resets the depth bias values. Check if they need to be set again.
         if (g_capabilities.dynamicDepthBias && g_backend == Backend::D3D12)
