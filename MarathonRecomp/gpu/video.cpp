@@ -1331,6 +1331,15 @@ static void DestructTempResources()
 static std::thread::id g_presentThreadId = std::this_thread::get_id();
 static std::atomic<bool> g_readyForCommands;
 
+// Upstream #394 (reimplementation of UnleashedRecomp #1486): a thread taking over the D3D
+// device waits until the next command list has begun, so ownership never changes between
+// Present and BeginCommandList. Mid-asm hook in Marathon.toml.in.
+void App_AcquireD3DThread()
+{
+    // Guard against thread ownership changes when between command lists.
+    g_readyForCommands.wait(false);
+}
+
 // PPC_FUNC_IMPL(__imp__sub_824ECA00);
 // PPC_FUNC(sub_824ECA00)
 // {
@@ -5237,7 +5246,7 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
             commandList->discardColorAttachment(0);
             commandList->setViewports(RenderViewport(0.0f, 0.0f, swapChainTextureWidth, swapChainTextureHeight));
             commandList->setScissors(RenderRect(0, 0, swapChainTextureWidth, swapChainTextureHeight));
-            commandList->drawInstanced(6, 1, 0, 0);
+            commandList->drawInstanced(3, 1, 0, 0);
             commandList->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(swapChainTexture, RenderTextureLayout::PRESENT));
         }
         else
@@ -6009,7 +6018,7 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
                     commandList->setViewports(RenderViewport(0.0f, 0.0f, float(texture->width), float(texture->height), 0.0f, 1.0f));
                     commandList->setScissors(RenderRect(0, 0, texture->width, texture->height));
                     commandList->setGraphicsPushConstants(0, &surface->descriptorIndex, 0, sizeof(uint32_t));
-                    commandList->drawInstanced(6, 1, 0, 0);
+                    commandList->drawInstanced(3, 1, 0, 0);
 
                     g_dirtyStates.renderTargetAndDepthStencil = true;
                     g_dirtyStates.viewport = true;
@@ -7327,7 +7336,7 @@ static void ProcSetSamplerState(const RenderCommand& cmd)
     SetDirtyValue(dirty, samplerDesc.minFilter, minFilter);
     SetDirtyValue(dirty, samplerDesc.magFilter, magFilter);
     SetDirtyValue(dirty, samplerDesc.mipmapMode, RenderMipmapMode(mipFilter));
-    SetDirtyValue(dirty, samplerDesc.maxAnisotropy, anisotropyEnabled ? Config::AnisotropicFiltering : 16u);
+    SetDirtyValue(dirty, samplerDesc.maxAnisotropy, anisotropyEnabled ? Config::AnisotropicFiltering : 1u);
     SetDirtyValue(dirty, samplerDesc.anisotropyEnabled, anisotropyEnabled);
     SetDirtyValue(dirty, samplerDesc.borderColor, borderColor);
 

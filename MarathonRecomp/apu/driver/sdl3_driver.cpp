@@ -110,6 +110,29 @@ void XAudioRegisterClient(PPCFunc* callback, uint32_t param)
     CreateAudioThread();
 }
 
+void XAudioUnregisterClient()
+{
+    // std::thread here (upstream joins its SDL_Thread wrapper, #346 is not ported). The audio
+    // thread cannot join itself, so a call from inside the callback only asks it to stop.
+    if (g_audioThread)
+    {
+        g_audioThreadShouldExit = true;
+        if (g_audioThread->joinable() && g_audioThread->get_id() != std::this_thread::get_id())
+        {
+            g_audioThread->join();
+            g_audioThread.reset();
+        }
+    }
+
+    if (g_clientCallbackParam)
+    {
+        g_userHeap.Free(g_memory.Translate(g_clientCallbackParam));
+        g_clientCallbackParam = 0;
+    }
+
+    g_clientCallback = nullptr;
+}
+
 void XAudioSubmitFrame(void* samples)
 {
     auto floatSamples = reinterpret_cast<be<float>*>(samples);
@@ -168,13 +191,16 @@ void XAudioConfigValueChangedCallback(IConfigDef* configDef)
 {
     if (configDef == &Config::ChannelConfiguration)
     {
-        if (g_audioThread->joinable())
+        if (g_audioThread && g_audioThread->joinable())
         {
             g_audioThreadShouldExit = true;
             g_audioThread->join();
         }
 
         CreateAudioDevice();
-        CreateAudioThread();
+
+        // No client after XAudioUnregisterClient: the thread would call a null callback.
+        if (g_clientCallback)
+            CreateAudioThread();
     }
 }

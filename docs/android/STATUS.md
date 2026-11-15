@@ -16,6 +16,7 @@ Settings: driver "A725 Performance (experimental)" (Sysmem), render scale 60 %, 
 - Sound and music, on-screen touch controls, saving and loading.
 - **60 FPS** in the HUB and in levels (Perfetto traces and the built-in `[perf]` log; 59–60 FPS on average outside scene loads).
 - Short FPS drops while scenes load (event, boss, level transitions).
+- **v0.2.5** (tested as 0.2.5-test1, 15 November 2026): 45% render scale, A725 Performance / Turnip sysmem, cap 60, performance capture and sampling on. Four periodic summaries: 59.4 / 59.8 / 59.6 / 59.9 FPS over a 4 min 52 s session; no logged crashes or Vulkan/pipeline errors. A 180-degree rotation and return from the background were recorded with rendering continuing. Short drops and loading-related game-thread pauses remain; no controlled speed comparison with v0.2.4. The release uses the same native libraries and assets as this test build.
 - **v0.2.0** (development builds and the final APK): 60 FPS in the HUB and in levels at 60 % render scale, GPU ~13 ms per frame; the optimized Vulkan render passes show no artifacts. With *Keep game threads on fast cores* turned off, the same level ran at 47–55 FPS — keep it on.
 
 ### Pixel 7 Pro — Google Tensor G2 (GS201), Mali-G710, Android 17 (tester)
