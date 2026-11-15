@@ -33,6 +33,7 @@ struct Video
     static bool CreateHostDevice(const char *sdlVideoDriver, bool graphicsApiRetry);
     static void WaitOnSwapChain();
     static void Present();
+    static bool IsResizePending();
     static void Resize(uint32_t width, uint32_t height);
     static void StartPipelinePrecompilation();
     static void WaitForGPU();

@@ -1,4 +1,5 @@
 #include <api/Marathon.h>
+#include <gpu/video.h>
 #include <kernel/memory.h>
 #include <os/logger.h>
 #include <patches/aspect_ratio_patches.h>
@@ -21,6 +22,23 @@ void BeginBlockGetName(PPCRegister& r3)
     if (g_pBlockName)
         LOGFN_UTILITY("Block Begin: {}", g_pBlockName);
 #endif
+}
+
+// Sonicteam::RenderAction::ReadBlock
+PPC_FUNC_IMPL(__imp__sub_8260DF88);
+PPC_FUNC(sub_8260DF88)
+{
+    // Resize must reload the script even when it has the same path.
+    if (!Video::IsResizePending() && ctx.r4.u32 != 0)
+    {
+        const auto pFilePath = reinterpret_cast<stdx::string*>(base + ctx.r4.u32);
+
+        // Don't process render script if it's the same one currently in use.
+        if (Sonicteam::Globals::ms_pCurrentRenderScript && *pFilePath == *Sonicteam::Globals::ms_pCurrentRenderScript)
+            return;
+    }
+
+    __imp__sub_8260DF88(ctx, base);
 }
 
 // EndBlock

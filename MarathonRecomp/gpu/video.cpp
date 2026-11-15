@@ -2399,6 +2399,9 @@ static void CreateImGuiBackend()
     io.IniFilename = nullptr;
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    // We scale and offset ImGui mouse events to adjust for viewports that differ from the window size.
+    // With ImGui's default trickle behavior, we may scale the same event multiple times, so disable it.
+    io.ConfigInputTrickleEventQueue = false;
 
 #ifdef ENABLE_IM_FONT_ATLAS_SNAPSHOT
     IM_DELETE(io.Fonts);
@@ -4691,6 +4694,22 @@ PPC_FUNC(sub_8260AAB0)
     }
 }
 
+// RenderPostprocess callback
+PPC_FUNC_IMPL(__imp__sub_8260ABB0);
+PPC_FUNC(sub_8260ABB0)
+{
+    const auto L = reinterpret_cast<lua50::lua_State*>(ctx.r3.u32 + base);
+
+    if (FindRenderProcess(L, "Postprocess"))
+    {
+        ctx.r3.u32 = 1;
+    }
+    else
+    {
+        __imp__sub_8260ABB0(ctx, base);
+    }
+}
+
 // RenderSpanverse callback
 PPC_FUNC_IMPL(__imp__sub_8260A9D0);
 PPC_FUNC(sub_8260A9D0)
@@ -4911,6 +4930,12 @@ void Video::Present()
     g_presentProfiler.Reset();
 }
 
+bool Video::IsResizePending()
+{
+    // Android can defer buffer recreation independently of the configuration resize flag.
+    return s_needsResize || g_resizePending;
+}
+
 void Video::Resize(uint32_t width, uint32_t height)
 {
     // Cleared at the end once the game's buffers were actually recreated.
@@ -5118,8 +5143,9 @@ void Video::Resize(uint32_t width, uint32_t height)
     pDoc->m_pSFXAgent->m_aSFXMatrices1 = 0;
     pDoc->m_pSFXAgent->m_aSFXMatrices2 = 0;
 
-    // Cache particle render processes.
+    // Cache render processes.
     CacheRenderProcess(pDoc->m_pRenderScheduler, "GE1Particle");
+    CacheRenderProcess(pDoc->m_pRenderScheduler, "Postprocess");
     CacheRenderProcess(pDoc->m_pRenderScheduler, "Spanverse");
 
     // Reload current render script.
