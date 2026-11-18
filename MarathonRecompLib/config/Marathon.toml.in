@@ -428,6 +428,19 @@ name = "RestoreChainJumpFlips"
 address = 0x82199654
 registers = ["r31", "r30", "r11", "f1", "f2", "f3"]
 
+# Disable Climb from Jump by Nonami, ported to MarathonRecomp in PR #217.
+# Knuckles
+[[midasm_hook]]
+name = "DisableClimbFromJump"
+address = 0x821AD1A8
+jump_address_on_true = 0x821AD1B4
+
+# Rouge
+[[midasm_hook]]
+name = "DisableClimbFromJump"
+address = 0x821AF140
+jump_address_on_true = 0x821AF14C
+
 [[midasm_hook]]
 name = "DisablePushState"
 address = 0x821A03F0

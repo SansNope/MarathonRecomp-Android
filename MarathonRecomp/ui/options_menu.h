@@ -26,6 +26,7 @@ enum class OptionsMenuCategory
     Input,
     Audio,
     Video,
+    Game,
     Debug,
     Count
 };

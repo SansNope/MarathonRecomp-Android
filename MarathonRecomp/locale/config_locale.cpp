@@ -178,6 +178,26 @@ CONFIG_DEFINE_LOCALE(AchievementNotifications)
     { ELanguage::Italian,  { "Notifiche obiettivi", "Mostra delle notifiche quando sblocchi degli obiettivi. Gli obiettivi verranno comunque assegnati anche con le notifiche disattivate." } }
 };
 
+CONFIG_DEFINE_LOCALE(MidairControlForMachSpeed)
+{
+    { ELanguage::English,  { "Max Speed Air Control", "Steer Sonic in midair during Max Speed sections." } },
+    { ELanguage::Japanese, { "高速ステージの空中操作", "高速ステージでソニックのジャンプ中に進行方向を変えられます" } },
+    { ELanguage::German,   { "Luftsteuerung bei Max Speed", "Steuere Sonic in Max-Speed-Abschnitten auch in der Luft." } },
+    { ELanguage::French,   { "Contrôle aérien à pleine vitesse", "Dirige Sonic en plein saut dans les sections à pleine vitesse." } },
+    { ELanguage::Spanish,  { "Control aéreo a máxima velocidad", "Controla a Sonic en el aire durante los tramos de máxima velocidad." } },
+    { ELanguage::Italian,  { "Controllo aereo ad alta velocità", "Controlla Sonic in aria nelle sezioni ad alta velocità." } }
+};
+
+CONFIG_DEFINE_LOCALE(DisableClimbFromJump)
+{
+    { ELanguage::English,  { "Wall Jump Fix", "Stops Knuckles and Rouge from grabbing walls during a normal jump. They can still grab walls while gliding." } },
+    { ELanguage::Japanese, { "壁ジャンプの修正", "ナックルズとルージュが通常ジャンプ中に壁につかまるのを防ぎます。滑空中は壁につかまれます" } },
+    { ELanguage::German,   { "Wandabsprung-Korrektur", "Verhindert, dass sich Knuckles und Rouge bei einem normalen Sprung an Wänden festhalten. Beim Gleiten ist das weiterhin möglich." } },
+    { ELanguage::French,   { "Correction du saut mural", "Empêche Knuckles et Rouge de s'accrocher aux murs lors d'un saut normal. Ils peuvent encore s'y accrocher en planant." } },
+    { ELanguage::Spanish,  { "Corrección del salto de pared", "Evita que Knuckles y Rouge se agarren a las paredes durante un salto normal. Todavía pueden agarrarse al planear." } },
+    { ELanguage::Italian,  { "Correzione del salto a parete", "Impedisce a Knuckles e Rouge di aggrapparsi alle pareti durante un salto normale. Possono ancora farlo in planata." } }
+};
+
 CONFIG_DEFINE_LOCALE(HorizontalCamera)
 {
     { ELanguage::English,  { "Horizontal Camera", "Change how the camera moves left and right." } },

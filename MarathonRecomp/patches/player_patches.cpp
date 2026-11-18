@@ -230,6 +230,11 @@ bool ControllableTeleportDash()
     return Config::ControllableTeleportDash;
 }
 
+bool DisableClimbFromJump()
+{
+    return Config::DisableClimbFromJump;
+}
+
 bool DisablePushState()
 {
     return Config::DisablePushState;

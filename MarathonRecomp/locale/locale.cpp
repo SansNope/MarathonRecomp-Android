@@ -143,6 +143,28 @@ std::unordered_map<std::string_view, std::unordered_map<ELanguage, std::string>>
         }
     },
     {
+        "Options_Category_Game",
+        {
+            { ELanguage::English,  "Game Settings" },
+            { ELanguage::Japanese, "ゲーム設定" },
+            { ELanguage::German,   "Spieleinstellungen" },
+            { ELanguage::French,   "Paramètres de jeu" },
+            { ELanguage::Spanish,  "Configuración del juego" },
+            { ELanguage::Italian,  "Impostazioni di gioco" }
+        }
+    },
+    {
+        "Options_Desc_Category_Game",
+        {
+            { ELanguage::English,  "Toggle gameplay patches." },
+            { ELanguage::Japanese, "ゲームプレイの修正を切り替えます" },
+            { ELanguage::German,   "Aktiviere oder deaktiviere Gameplay-Patches." },
+            { ELanguage::French,   "Activer ou désactiver les correctifs de jeu." },
+            { ELanguage::Spanish,  "Activa o desactiva las correcciones de jugabilidad." },
+            { ELanguage::Italian,  "Attiva o disattiva le correzioni al gameplay." }
+        }
+    },
+    {
         "Options_Category_Debug",
         {
             { ELanguage::English,  "Debug settings" },

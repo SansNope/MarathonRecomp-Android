@@ -56,6 +56,7 @@ static std::string& GetCategoryName(OptionsMenuCategory category)
         case OptionsMenuCategory::Input: return Localise("Options_Category_Input");
         case OptionsMenuCategory::Audio: return Localise("Options_Category_Audio");
         case OptionsMenuCategory::Video: return Localise("Options_Category_Video");
+        case OptionsMenuCategory::Game: return Localise("Options_Category_Game");
         case OptionsMenuCategory::Debug: return Localise("Options_Category_Debug");
     }
 
@@ -70,6 +71,7 @@ static std::string& GetCategoryDescription(OptionsMenuCategory category)
         case OptionsMenuCategory::Input: return Localise("Options_Desc_Category_Input");
         case OptionsMenuCategory::Audio: return Localise("Options_Desc_Category_Audio");
         case OptionsMenuCategory::Video: return Localise("Options_Desc_Category_Video");
+        case OptionsMenuCategory::Game: return Localise("Options_Desc_Category_Game");
         case OptionsMenuCategory::Debug: return Localise("Options_Desc_Category_Debug");
     }
 
@@ -873,16 +875,23 @@ static void DrawOptions(ImVec2 min, ImVec2 max)
             break;
         }
 
+        case OptionsMenuCategory::Game:
+            DrawOption(rowCount++, &Config::MidairControlForMachSpeed, true);
+            DrawOption(rowCount++, &Config::DisableClimbFromJump, true);
+            break;
+
         case OptionsMenuCategory::Debug:
         {
             for (auto def : g_configDefinitions)
             {
-                if (def->GetSection() != "Codes")
+                // Game Settings entries share the Codes section but are regular options.
+                if (def->GetSection() != "Codes" ||
+                    def == &Config::MidairControlForMachSpeed || def == &Config::DisableClimbFromJump)
                     continue;
 
-                def->SetHidden(false);
-
-                DrawOption(rowCount++, (ConfigDef<bool, true>*)def, true);
+                auto* code = static_cast<ConfigDef<bool, true>*>(def);
+                code->SetHidden(false);
+                DrawOption(rowCount++, code, true);
             }
 
             break;
