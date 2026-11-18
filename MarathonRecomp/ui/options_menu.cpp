@@ -17,6 +17,35 @@
 
 static constexpr int MAX_VISIBLE_ROWS = 3;
 
+static constexpr ConfigDef<bool>* GAME_SETTINGS[] =
+{
+    &Config::MidairControlForMachSpeed,
+    &Config::DisableClimbFromJump,
+    &Config::MidairControlForSnowboards,
+    &Config::DisablePushState,
+    &Config::RestoreSonicActionGauge,
+    &Config::TailsGauge,
+    &Config::ControllableTornadoAttack,
+    &Config::ControllableHomingRecovery,
+    &Config::RestoreHomingFlips,
+    &Config::RestoreHomingGravity,
+    &Config::RestoreHomingSpam,
+    &Config::AntigravityRetainsMomentum,
+    &Config::UnlimitedAntigravity,
+    &Config::AlwaysExitVehicles,
+    &Config::DisableChaosAttack,
+    &Config::IncreasedChaosBlastRange,
+    &Config::RestoreChaosBoostJump,
+    &Config::RestoreChaosSpearFlips,
+    &Config::AlwaysHoldPhysicsObjects,
+    &Config::ControllablePsychoShock,
+    &Config::ControllableTeleportDash,
+    &Config::RestoreSilverBossThrow,
+    &Config::ControllableOmegaLauncher,
+    &Config::ControllableOmegaLockOnShot,
+    &Config::FixOmegaShotCollision,
+};
+
 static bool g_isClosingButtonWindow{};
 
 static double g_stateTime{};
@@ -876,8 +905,8 @@ static void DrawOptions(ImVec2 min, ImVec2 max)
         }
 
         case OptionsMenuCategory::Game:
-            DrawOption(rowCount++, &Config::MidairControlForMachSpeed, true);
-            DrawOption(rowCount++, &Config::DisableClimbFromJump, true);
+            for (auto* option : GAME_SETTINGS)
+                DrawOption(rowCount++, option, true);
             break;
 
         case OptionsMenuCategory::Debug:
@@ -886,7 +915,7 @@ static void DrawOptions(ImVec2 min, ImVec2 max)
             {
                 // Game Settings entries share the Codes section but are regular options.
                 if (def->GetSection() != "Codes" ||
-                    def == &Config::MidairControlForMachSpeed || def == &Config::DisableClimbFromJump)
+                    std::find(std::begin(GAME_SETTINGS), std::end(GAME_SETTINGS), def) != std::end(GAME_SETTINGS))
                     continue;
 
                 auto* code = static_cast<ConfigDef<bool, true>*>(def);

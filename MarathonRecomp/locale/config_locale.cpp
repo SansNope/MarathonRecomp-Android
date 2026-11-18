@@ -198,6 +198,236 @@ CONFIG_DEFINE_LOCALE(DisableClimbFromJump)
     { ELanguage::Italian,  { "Correzione del salto a parete", "Impedisce a Knuckles e Rouge di aggrapparsi alle pareti durante un salto normale. Possono ancora farlo in planata." } }
 };
 
+CONFIG_DEFINE_LOCALE(MidairControlForSnowboards)
+{
+    { ELanguage::English,  { "Midair Control for Snowboards", "Steer the snowboard while airborne." } },
+    { ELanguage::Japanese, { "スノーボードの空中操作", "ジャンプ中にスノーボードの進行方向を変えられます" } },
+    { ELanguage::German,   { "Snowboard-Luftsteuerung", "Steuere das Snowboard auch in der Luft." } },
+    { ELanguage::French,   { "Contrôle aérien du snowboard", "Dirige le snowboard pendant un saut." } },
+    { ELanguage::Spanish,  { "Control aéreo del snowboard", "Controla la tabla de snowboard en el aire." } },
+    { ELanguage::Italian,  { "Controllo aereo dello snowboard", "Sterza con lo snowboard mentre sei in aria." } }
+};
+
+CONFIG_DEFINE_LOCALE(DisablePushState)
+{
+    { ELanguage::English,  { "Wall Push Fix", "Prevents characters from getting stuck while pushing against walls." } },
+    { ELanguage::Japanese, { "壁際での引っかかり修正", "壁を押したときに身動きが取れなくなるのを防ぎます" } },
+    { ELanguage::German,   { "Korrektur beim Drücken gegen Wände", "Verhindert, dass Figuren beim Drücken gegen Wände hängen bleiben." } },
+    { ELanguage::French,   { "Correction du blocage contre les murs", "Empêche les personnages de rester bloqués en poussant contre un mur." } },
+    { ELanguage::Spanish,  { "Corrección de bloqueo en paredes", "Evita que los personajes se queden atascados al empujar contra una pared." } },
+    { ELanguage::Italian,  { "Correzione del blocco contro le pareti", "Evita che i personaggi rimangano bloccati spingendo contro una parete." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreSonicActionGauge)
+{
+    { ELanguage::English,  { "Restore Sonic's Action Gauge", "Sonic's gems draw from a gauge that can refill." } },
+    { ELanguage::Japanese, { "ソニックのアクションゲージ復元", "ソニックのジェムを使うとゲージが減り、再び回復します" } },
+    { ELanguage::German,   { "Sonics Aktionsanzeige wiederherstellen", "Sonics Edelsteine verbrauchen Energie aus einer Anzeige, die sich wieder füllt." } },
+    { ELanguage::French,   { "Rétablir la jauge d'action de Sonic", "Les gemmes de Sonic consomment une jauge qui peut se remplir à nouveau." } },
+    { ELanguage::Spanish,  { "Restaurar el indicador de acción de Sonic", "Las gemas de Sonic consumen un indicador que puede recargarse." } },
+    { ELanguage::Italian,  { "Ripristina la barra azione di Sonic", "Le gemme di Sonic consumano energia da una barra che può ricaricarsi." } }
+};
+
+CONFIG_DEFINE_LOCALE(TailsGauge)
+{
+    { ELanguage::English,  { "Tails' Flight Gauge", "Shows Tails' remaining flight time. Re-enter the stage to apply the change." } },
+    { ELanguage::Japanese, { "テイルスの飛行ゲージ", "テイルスの残り飛行時間を表示します。変更はステージに入り直すと反映されます" } },
+    { ELanguage::German,   { "Tails' Fluganzeige", "Zeigt Tails' verbleibende Flugzeit. Betritt den Level erneut, damit die Änderung wirksam wird." } },
+    { ELanguage::French,   { "Jauge de vol de Tails", "Affiche le temps de vol restant de Tails. Rentre dans le niveau pour appliquer le changement." } },
+    { ELanguage::Spanish,  { "Indicador de vuelo de Tails", "Muestra el tiempo de vuelo restante de Tails. Vuelve a entrar en el nivel para aplicar el cambio." } },
+    { ELanguage::Italian,  { "Indicatore di volo di Tails", "Mostra il tempo di volo rimanente di Tails. Entra di nuovo nel livello per applicare la modifica." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllableTornadoAttack)
+{
+    { ELanguage::English,  { "Controllable Tornado Attack", "Lets Sonic steer during his tornado attack. Re-enter the stage to update the sound." } },
+    { ELanguage::Japanese, { "トルネードアタックの操作", "トルネードアタック中にソニックを操作できます。効果音の変更はステージに入り直すと反映されます" } },
+    { ELanguage::German,   { "Steuerbarer Tornadoangriff", "Steuere Sonic während seines Tornadoangriffs. Betritt den Level erneut, um den Ton zu aktualisieren." } },
+    { ELanguage::French,   { "Attaque tornade contrôlable", "Dirige Sonic pendant son attaque tornade. Rentre dans le niveau pour actualiser le son." } },
+    { ELanguage::Spanish,  { "Ataque tornado controlable", "Controla a Sonic durante su ataque tornado. Vuelve a entrar en el nivel para actualizar el sonido." } },
+    { ELanguage::Italian,  { "Attacco tornado controllabile", "Muovi Sonic durante il suo attacco tornado. Entra di nuovo nel livello per aggiornare l'audio." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllableHomingRecovery)
+{
+    { ELanguage::English,  { "Steer After Homing Attack", "Lets Sonic steer during recovery after a Homing Attack." } },
+    { ELanguage::Japanese, { "ホーミングアタック後の操作", "ホーミングアタック直後にソニックの進行方向を変えられます" } },
+    { ELanguage::German,   { "Steuerung nach Zielangriff", "Steuere Sonic direkt nach einem Zielangriff." } },
+    { ELanguage::French,   { "Contrôle après l'attaque téléguidée", "Dirige Sonic pendant la récupération après une attaque téléguidée." } },
+    { ELanguage::Spanish,  { "Control tras el ataque teledirigido", "Controla a Sonic durante la recuperación tras un ataque teledirigido." } },
+    { ELanguage::Italian,  { "Controllo dopo l'attacco a ricerca", "Muovi Sonic durante il recupero dopo un attacco a ricerca." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreHomingFlips)
+{
+    { ELanguage::English,  { "Restore Homing Flips", "Restores Sonic's extra flips after a Homing Attack." } },
+    { ELanguage::Japanese, { "ホーミング後の宙返りを復元", "ホーミングアタック直後のソニックの宙返りを復元します" } },
+    { ELanguage::German,   { "Salti nach Zielangriff wiederherstellen", "Stellt Sonics zusätzliche Salti nach einem Zielangriff wieder her." } },
+    { ELanguage::French,   { "Rétablir les saltos après l'attaque", "Rétablit les saltos supplémentaires de Sonic après une attaque téléguidée." } },
+    { ELanguage::Spanish,  { "Restaurar volteretas tras el ataque", "Recupera las volteretas de Sonic tras un ataque teledirigido." } },
+    { ELanguage::Italian,  { "Ripristina le capriole dopo l'attacco", "Ripristina le capriole aggiuntive di Sonic dopo un attacco a ricerca." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreHomingGravity)
+{
+    { ELanguage::English,  { "Restore Homing Gravity", "Restores Sonic's Homing Attack gravity from early versions." } },
+    { ELanguage::Japanese, { "ホーミング時の重力を復元", "開発版にあったソニックのホーミングアタック時の重力を復元します" } },
+    { ELanguage::German,   { "Frühere Zielangriff-Schwerkraft", "Stellt die Schwerkraft für Sonics Zielangriff aus frühen Versionen wieder her." } },
+    { ELanguage::French,   { "Gravité de l'attaque téléguidée", "Rétablit la gravité de l'attaque téléguidée de Sonic des premières versions." } },
+    { ELanguage::Spanish,  { "Gravedad del ataque teledirigido", "Recupera la gravedad del ataque teledirigido de Sonic de versiones tempranas." } },
+    { ELanguage::Italian,  { "Gravità dell'attacco a ricerca", "Ripristina la gravità dell'attacco a ricerca di Sonic delle prime versioni." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreHomingSpam)
+{
+    { ELanguage::English,  { "Repeat Homing Attacks", "Lets Sonic and Shadow chain Homing Attacks more quickly." } },
+    { ELanguage::Japanese, { "ホーミングアタックの連発", "ソニックとシャドウがホーミングアタックを素早く連発できます" } },
+    { ELanguage::German,   { "Schnelle Zielangriffe", "Sonic und Shadow können Zielangriffe schneller wiederholen." } },
+    { ELanguage::French,   { "Attaques téléguidées en chaîne", "Sonic et Shadow peuvent enchaîner les attaques téléguidées plus rapidement." } },
+    { ELanguage::Spanish,  { "Ataques teledirigidos en cadena", "Sonic y Shadow pueden encadenar ataques teledirigidos más rápido." } },
+    { ELanguage::Italian,  { "Attacchi a ricerca in sequenza", "Sonic e Shadow possono ripetere più rapidamente gli attacchi a ricerca." } }
+};
+
+CONFIG_DEFINE_LOCALE(AntigravityRetainsMomentum)
+{
+    { ELanguage::English,  { "Sliding Attack Retains Speed", "Keeps Sonic's current speed when starting a Sliding Attack." } },
+    { ELanguage::Japanese, { "スライディング時の速度維持", "ソニックがスライディングアタックを始めるときに速度を維持します" } },
+    { ELanguage::German,   { "Tempo beim Schlitterangriff", "Sonic behält sein Tempo zu Beginn des Schlitterangriffs." } },
+    { ELanguage::French,   { "Vitesse conservée en glissade", "Sonic conserve sa vitesse en commençant une attaque glissée." } },
+    { ELanguage::Spanish,  { "Conservar velocidad al derrapar", "Sonic conserva su velocidad al iniciar un ataque derrape." } },
+    { ELanguage::Italian,  { "Mantieni velocità in scivolata", "Sonic mantiene la velocità quando inizia una Scivolata." } }
+};
+
+CONFIG_DEFINE_LOCALE(UnlimitedAntigravity)
+{
+    { ELanguage::English,  { "Unlimited Sliding Attack", "Stops the X-button Sliding Attack from ending automatically. With B controls, releasing B still ends the slide." } },
+    { ELanguage::Japanese, { "スライディング時間の制限解除", "X操作のスライディングアタックが自動で終了しなくなります。B操作ではBを離すと終了します" } },
+    { ELanguage::German,   { "Unbegrenzter Schlitterangriff", "Der Schlitterangriff mit X endet nicht automatisch. Bei B-Steuerung endet er beim Loslassen von B." } },
+    { ELanguage::French,   { "Attaque glissée illimitée", "L'attaque glissée avec X ne se termine plus automatiquement. Avec la commande B, relâche B pour l'arrêter." } },
+    { ELanguage::Spanish,  { "Ataque derrape ilimitado", "El ataque derrape con X deja de terminar automáticamente. Con el control B, soltar B sigue cancelándolo." } },
+    { ELanguage::Italian,  { "Scivolata illimitata", "La Scivolata con X non termina più automaticamente. Con il comando B, rilascia B per fermarla." } }
+};
+
+CONFIG_DEFINE_LOCALE(AlwaysExitVehicles)
+{
+    { ELanguage::English,  { "Always Exit Vehicles", "Lets Shadow get out of vehicles at any time." } },
+    { ELanguage::Japanese, { "乗り物からいつでも降りる", "シャドウがいつでも乗り物から降りられます" } },
+    { ELanguage::German,   { "Fahrzeuge jederzeit verlassen", "Shadow kann jederzeit aus Fahrzeugen aussteigen." } },
+    { ELanguage::French,   { "Quitter les véhicules à tout moment", "Shadow peut descendre des véhicules à tout moment." } },
+    { ELanguage::Spanish,  { "Salir de vehículos en cualquier momento", "Shadow puede bajarse de los vehículos en cualquier momento." } },
+    { ELanguage::Italian,  { "Scendi sempre dai veicoli", "Shadow può scendere dai veicoli in qualsiasi momento." } }
+};
+
+CONFIG_DEFINE_LOCALE(DisableChaosAttack)
+{
+    { ELanguage::English,  { "Disable Chaos Attack", "Shadow uses a standard Homing Attack in place of Chaos Attack." } },
+    { ELanguage::Japanese, { "カオスアタックを無効化", "シャドウがカオスアタックの代わりに通常のホーミングアタックを使います" } },
+    { ELanguage::German,   { "Chaos-Angriff deaktivieren", "Shadow nutzt einen normalen Zielangriff anstelle des Chaos-Angriffs." } },
+    { ELanguage::French,   { "Désactiver l'attaque du chaos", "Shadow utilise une attaque téléguidée normale à la place de l'attaque du chaos." } },
+    { ELanguage::Spanish,  { "Desactivar Ataque Caos", "Shadow usa un ataque teledirigido normal en lugar del Ataque Caos." } },
+    { ELanguage::Italian,  { "Disattiva Attacco Chaos", "Shadow usa un normale attacco a ricerca al posto dell'Attacco Chaos." } }
+};
+
+CONFIG_DEFINE_LOCALE(IncreasedChaosBlastRange)
+{
+    { ELanguage::English,  { "Wider Chaos Blast", "Increases the range of Shadow's Chaos Blast." } },
+    { ELanguage::Japanese, { "カオスブラストの範囲拡大", "シャドウのカオスブラストの効果範囲を広げます" } },
+    { ELanguage::German,   { "Größere Chaos-Blast-Reichweite", "Erhöht die Reichweite von Shadows Chaos Blast." } },
+    { ELanguage::French,   { "Chaos Blast élargi", "Augmente la portée du Chaos Blast de Shadow." } },
+    { ELanguage::Spanish,  { "Mayor alcance de Chaos Blast", "Aumenta el alcance del Chaos Blast de Shadow." } },
+    { ELanguage::Italian,  { "Raggio di Chaos Blast esteso", "Aumenta la portata del Chaos Blast di Shadow." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreChaosBoostJump)
+{
+    { ELanguage::English,  { "Restore Chaos Boost Jump", "Restores Shadow's jump animation when activating Chaos Boost." } },
+    { ELanguage::Japanese, { "カオスブーストのジャンプを復元", "カオスブースト発動時のシャドウのジャンプ演出を復元します" } },
+    { ELanguage::German,   { "Chaos-Boost-Sprung wiederherstellen", "Stellt Shadows Sprunganimation beim Aktivieren des Chaos Boost wieder her." } },
+    { ELanguage::French,   { "Rétablir le saut du Chaos Boost", "Rétablit l'animation de saut de Shadow à l'activation du Chaos Boost." } },
+    { ELanguage::Spanish,  { "Restaurar salto de Chaos Boost", "Recupera la animación de salto de Shadow al activar Chaos Boost." } },
+    { ELanguage::Italian,  { "Ripristina salto del Chaos Boost", "Ripristina l'animazione di salto di Shadow quando attiva il Chaos Boost." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreChaosSpearFlips)
+{
+    { ELanguage::English,  { "Restore Chaos Spear Flips", "Restores Shadow's flips when using Chaos Spear." } },
+    { ELanguage::Japanese, { "カオススピアの宙返りを復元", "カオススピア使用時のシャドウの宙返りを復元します" } },
+    { ELanguage::German,   { "Chaos-Spear-Salti wiederherstellen", "Stellt Shadows Salti beim Einsatz von Chaos Spear wieder her." } },
+    { ELanguage::French,   { "Rétablir les saltos du Chaos Spear", "Rétablit les saltos de Shadow lors de l'utilisation de Chaos Spear." } },
+    { ELanguage::Spanish,  { "Restaurar volteretas de Chaos Spear", "Recupera las volteretas de Shadow al usar Chaos Spear." } },
+    { ELanguage::Italian,  { "Ripristina capriole del Chaos Spear", "Ripristina le capriole di Shadow quando usa Chaos Spear." } }
+};
+
+CONFIG_DEFINE_LOCALE(AlwaysHoldPhysicsObjects)
+{
+    { ELanguage::English,  { "Hold Objects While Levitating", "Lets Silver hold physics objects while levitating." } },
+    { ELanguage::Japanese, { "浮遊中に物を持つ", "シルバーが浮遊中に物を保持できます" } },
+    { ELanguage::German,   { "Objekte beim Schweben halten", "Silver kann beim Schweben Physikobjekte festhalten." } },
+    { ELanguage::French,   { "Tenir des objets en lévitation", "Silver peut tenir des objets physiques pendant qu'il lévite." } },
+    { ELanguage::Spanish,  { "Sujetar objetos al levitar", "Silver puede sujetar objetos físicos mientras levita." } },
+    { ELanguage::Italian,  { "Tieni gli oggetti in levitazione", "Silver può tenere oggetti fisici mentre levita." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllablePsychoShock)
+{
+    { ELanguage::English,  { "Controllable Psycho Shock", "Lets Silver move during Psycho Shock." } },
+    { ELanguage::Japanese, { "サイコショックの操作", "サイコショック中にシルバーを移動させられます" } },
+    { ELanguage::German,   { "Steuerbarer Psycho Shock", "Silver kann sich während Psycho Shock bewegen." } },
+    { ELanguage::French,   { "Psycho Shock contrôlable", "Silver peut se déplacer pendant Psycho Shock." } },
+    { ELanguage::Spanish,  { "Psycho Shock controlable", "Silver puede moverse durante Psycho Shock." } },
+    { ELanguage::Italian,  { "Psycho Shock controllabile", "Silver può muoversi mentre usa Psycho Shock." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllableTeleportDash)
+{
+    { ELanguage::English,  { "Controllable Teleport Dash", "Lets Silver steer during Teleport Dash." } },
+    { ELanguage::Japanese, { "テレポートダッシュの操作", "テレポートダッシュ中にシルバーの進行方向を変えられます" } },
+    { ELanguage::German,   { "Steuerbarer Teleport Dash", "Silver kann während Teleport Dash die Richtung ändern." } },
+    { ELanguage::French,   { "Teleport Dash contrôlable", "Silver peut changer de direction pendant Teleport Dash." } },
+    { ELanguage::Spanish,  { "Teleport Dash controlable", "Silver puede cambiar de dirección durante Teleport Dash." } },
+    { ELanguage::Italian,  { "Teleport Dash controllabile", "Silver può cambiare direzione durante il Teleport Dash." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreSilverBossThrow)
+{
+    { ELanguage::English,  { "Restore Silver's Boss Throw", "Restores Silver's ability to throw bosses to damage them." } },
+    { ELanguage::Japanese, { "シルバーのボス投げを復元", "シルバーがボスを投げてダメージを与える能力を復元します" } },
+    { ELanguage::German,   { "Silvers Bosswurf wiederherstellen", "Silver kann Bosse wieder werfen, um ihnen Schaden zuzufügen." } },
+    { ELanguage::French,   { "Rétablir la projection des boss", "Silver peut à nouveau projeter les boss pour leur infliger des dégâts." } },
+    { ELanguage::Spanish,  { "Restaurar el lanzamiento de jefes", "Silver vuelve a poder lanzar a los jefes para hacerles daño." } },
+    { ELanguage::Italian,  { "Ripristina il lancio dei boss", "Silver può di nuovo lanciare i boss per danneggiarli." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllableOmegaLauncher)
+{
+    { ELanguage::English,  { "Move During Omega Launcher", "Lets Omega move while shooting in midair." } },
+    { ELanguage::Japanese, { "オメガランチャーの操作", "オメガが空中で射撃しながら移動できます" } },
+    { ELanguage::German,   { "Steuerung beim Omega Launcher", "Omega kann sich beim Schießen in der Luft bewegen." } },
+    { ELanguage::French,   { "Contrôle pendant Omega Launcher", "Omega peut se déplacer en tirant en plein saut." } },
+    { ELanguage::Spanish,  { "Control durante Omega Launcher", "Omega puede moverse mientras dispara en el aire." } },
+    { ELanguage::Italian,  { "Movimento durante Omega Launcher", "Omega può muoversi mentre spara in aria." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllableOmegaLockOnShot)
+{
+    { ELanguage::English,  { "Move During Omega Lock-On Shot", "Lets Omega move while firing homing lasers." } },
+    { ELanguage::Japanese, { "オメガのロックオン射撃の操作", "オメガが追尾レーザーを発射しながら移動できます" } },
+    { ELanguage::German,   { "Steuerung beim Omega-Ziellaser", "Omega kann sich beim Feuern von Zielsuchlasern bewegen." } },
+    { ELanguage::French,   { "Contrôle du tir verrouillé d'Omega", "Omega peut se déplacer en tirant ses lasers à tête chercheuse." } },
+    { ELanguage::Spanish,  { "Control del disparo fijado de Omega", "Omega puede moverse al disparar láseres teledirigidos." } },
+    { ELanguage::Italian,  { "Movimento durante il tiro mirato", "Omega può muoversi mentre spara laser a ricerca." } }
+};
+
+CONFIG_DEFINE_LOCALE(FixOmegaShotCollision)
+{
+    { ELanguage::English,  { "Fix Omega Shot Collision", "Stops ally Omega's shots from intercepting Homing Attacks. Re-enter the stage if needed." } },
+    { ELanguage::Japanese, { "オメガの弾の当たり判定を修正", "味方のオメガの弾にホーミングアタックが当たるのを防ぎます。必要に応じてステージに入り直してください" } },
+    { ELanguage::German,   { "Kollision mit Omega-Schüssen", "Verhindert, dass Schüsse des verbündeten Omega Zielangriffe abfangen. Betritt den Level bei Bedarf erneut." } },
+    { ELanguage::French,   { "Collision des tirs d'Omega", "Empêche les tirs d'Omega allié d'intercepter les attaques téléguidées. Relance le niveau si nécessaire." } },
+    { ELanguage::Spanish,  { "Colisión de disparos de Omega", "Evita que los disparos de Omega aliado intercepten ataques teledirigidos. Vuelve a entrar en el nivel si hace falta." } },
+    { ELanguage::Italian,  { "Collisione dei colpi di Omega", "Evita che i colpi di Omega alleato intercettino gli attacchi a ricerca. Rientra nel livello se necessario." } }
+};
+
 CONFIG_DEFINE_LOCALE(HorizontalCamera)
 {
     { ELanguage::English,  { "Horizontal Camera", "Change how the camera moves left and right." } },

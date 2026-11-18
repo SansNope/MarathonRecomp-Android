@@ -202,9 +202,19 @@ PPC_FUNC(sub_8219A5B0)
     __imp__sub_8219A5B0(ctx, base);
 }
 
+bool AlwaysExitVehicles()
+{
+    return Config::AlwaysExitVehicles;
+}
+
 bool AntigravityRetainsMomentum()
 {
     return Config::AntigravityRetainsMomentum;
+}
+
+bool AlwaysHoldPhysicsObjects()
+{
+    return Config::AlwaysHoldPhysicsObjects;
 }
 
 bool ControllableBoundAttack()
@@ -220,6 +230,26 @@ bool ControllableBoundAttack2(PPCCRRegister& cmp)
     return cmp.eq;
 }
 
+bool ControllableHomingRecovery()
+{
+    return Config::ControllableHomingRecovery;
+}
+
+bool ControllableOmegaLauncher()
+{
+    return Config::ControllableOmegaLauncher;
+}
+
+bool ControllableOmegaLockOnShot()
+{
+    return Config::ControllableOmegaLockOnShot;
+}
+
+bool ControllablePsychoShock()
+{
+    return Config::ControllablePsychoShock;
+}
+
 bool ControllableSpinkick()
 {
     return Config::ControllableSpinkick;
@@ -230,6 +260,46 @@ bool ControllableTeleportDash()
     return Config::ControllableTeleportDash;
 }
 
+PPC_FUNC_IMPL(__imp__sub_821A3118); // Sonicteam::Player::State::SonicTornadoAir::SonicTornadoAir
+PPC_FUNC_IMPL(__imp__sub_821A2F98); // Sonicteam::Player::State::SonicTornadoGround::SonicTornadoGround
+PPC_FUNC(sub_821A2F98)
+{
+    // Redirect ground state to air state.
+    if (Config::ControllableTornadoAttack)
+    {
+        __imp__sub_821A3118(ctx, base);
+        return;
+    }
+
+    __imp__sub_821A2F98(ctx, base);
+}
+
+bool ControllableTornadoAttack()
+{
+    return Config::ControllableTornadoAttack;
+}
+
+void ControllableTornadoAttack_SetSoundCue(PPCRegister& r30, PPCRegister& r5)
+{
+    // Use the ground tornado cue in place of the silent air cue when loading Sonic's sounds.
+    if (Config::ControllableTornadoAttack && r30.u32 == 0x8200FCE8)
+        r5.u32 = 0x8200E474;
+}
+
+PPC_FUNC_IMPL(__imp__sub_821B6B20); // Sonicteam::Player::State::ShadowHoming<1>::Update
+PPC_FUNC_IMPL(__imp__sub_821B66E8); // Sonicteam::Player::State::ShadowHoming<0>::Update
+PPC_FUNC(sub_821B66E8)
+{
+    // Redirect state update with attacks to one without.
+    if (Config::DisableChaosAttack)
+    {
+        __imp__sub_821B6B20(ctx, base);
+        return;
+    }
+
+    __imp__sub_821B66E8(ctx, base);
+}
+
 bool DisableClimbFromJump()
 {
     return Config::DisableClimbFromJump;
@@ -238,6 +308,22 @@ bool DisableClimbFromJump()
 bool DisablePushState()
 {
     return Config::DisablePushState;
+}
+
+void FixOmegaShotCollision(PPCRegister& r6)
+{
+    if (!Config::FixOmegaShotCollision)
+        return;
+
+    r6.u32 = 0x1C80;
+}
+
+void IncreasedChaosBlastRange(PPCRegister& f0)
+{
+    if (!Config::IncreasedChaosBlastRange)
+        return;
+
+    f0.f64 = 2500.0;
 }
 
 bool MidairControlForMachSpeed()
@@ -311,6 +397,40 @@ void RestoreChainJumpFlips(PPCRegister& r31, PPCRegister& r30, PPCRegister& r11,
 bool RestoreChaosSpearFlips()
 {
     return Config::RestoreChaosSpearFlips;
+}
+
+bool RestoreHomingFlips(PPCCRRegister& cr6)
+{
+    return Config::RestoreHomingFlips
+        ? !cr6.gt
+        : !cr6.eq;
+}
+
+bool RestoreHomingGravity(PPCRegister& r1, PPCRegister& r4, PPCRegister& r5)
+{
+    if (!Config::RestoreHomingGravity)
+        return false;
+
+    const auto pResult = reinterpret_cast<Sonicteam::SoX::Math::Vector*>(g_memory.Translate(r1.u32 + 0x80));
+    const auto pVectorA = reinterpret_cast<Sonicteam::SoX::Math::Vector*>(g_memory.Translate(r4.u32));
+    const auto pVectorB = reinterpret_cast<Sonicteam::SoX::Math::Vector*>(g_memory.Translate(r5.u32));
+
+    *pResult = *pVectorA + *pVectorB;
+
+    return true;
+}
+
+bool RestoreHomingSpam()
+{
+    return Config::RestoreHomingSpam;
+}
+
+void RestoreSilverBossThrow(PPCRegister& r12)
+{
+    if (!Config::RestoreSilverBossThrow)
+        return;
+
+    r12.u64 = 0;
 }
 
 bool UnlimitedAntigravity()

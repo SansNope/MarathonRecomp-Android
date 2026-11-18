@@ -807,3 +807,117 @@ registers = ["r25"]
 [[midasm_hook]]
 name = "App_AcquireD3DThread"
 address = 0x825B2474
+
+# Optional gameplay patches from MarathonRecomp v1.0.0 (#217).
+[[midasm_hook]]
+name = "AlwaysHoldPhysicsObjects"
+address = 0x8221ACBC
+jump_address_on_true = 0x8221ACC0
+
+[[midasm_hook]]
+name = "ControllableHomingRecovery"
+address = 0x82217600
+jump_address_on_true = 0x82217618
+
+[[midasm_hook]]
+name = "RestoreHomingSpam"
+address = 0x822175D8
+jump_address_on_true = 0x822175E4
+
+[[midasm_hook]]
+name = "RestoreHomingSpam"
+address = 0x821A68AC
+jump_address_on_true = 0x821A68B8
+
+[[midasm_hook]]
+name = "AlwaysExitVehicles"
+address = 0x821A845C
+jump_address_on_true = 0x821A8460
+
+[[midasm_hook]]
+name = "AlwaysExitVehicles"
+address = 0x821A7F00
+jump_address_on_true = 0x821A7F04
+
+[[midasm_hook]]
+name = "AlwaysExitVehicles"
+address = 0x821A8298
+jump_address_on_true = 0x821A829C
+
+[[midasm_hook]]
+name = "AlwaysExitVehicles"
+address = 0x821A8100
+jump_address_on_true = 0x821A8104
+
+[[midasm_hook]]
+name = "RestoreHomingFlips"
+address = 0x822173F0
+registers = ["cr6"]
+jump_address_on_true = 0x82217404
+jump_address_on_false = 0x822173F4
+
+[[midasm_hook]]
+name = "ControllablePsychoShock"
+address = 0x821A4320
+jump_address_on_true = 0x821A4324
+
+[[midasm_hook]]
+name = "ControllablePsychoShock"
+address = 0x821A4334
+jump_address_on_true = 0x821A4338
+
+[[midasm_hook]]
+name = "ControllableTornadoAttack"
+address = 0x821A31B8
+jump_address_on_true = 0x821A31C8
+
+[[midasm_hook]]
+name = "RestoreHomingGravity"
+address = 0x821F8724
+registers = ["r1", "r4", "r5"]
+jump_address_on_true = 0x821F8730
+
+[[midasm_hook]]
+name = "ControllableOmegaLauncher"
+address = 0x821AA6CC
+jump_address_on_true = 0x821AA6D0
+
+[[midasm_hook]]
+name = "ControllableOmegaLauncher"
+address = 0x821AA6D4
+jump_address_on_true = 0x821AA6D8
+
+[[midasm_hook]]
+name = "ControllableOmegaLockOnShot"
+address = 0x821AA908
+jump_address_on_true = 0x821AA90C
+
+[[midasm_hook]]
+name = "ControllableOmegaLockOnShot"
+address = 0x821AA910
+jump_address_on_true = 0x821AA914
+
+[[midasm_hook]]
+name = "IncreasedChaosBlastRange"
+address = 0x82253560
+registers = ["f0"]
+after_instruction = true
+
+[[midasm_hook]]
+name = "RestoreSilverBossThrow"
+address = 0x821B271C
+registers = ["r12"]
+after_instruction = true
+
+[[midasm_hook]]
+name = "FixOmegaShotCollision"
+address = 0x822488F0
+registers = ["r6"]
+after_instruction = true
+
+# Sonic's sound constructor, immediately after loading the current cue name.
+[[midasm_hook]]
+name = "ControllableTornadoAttack_SetSoundCue"
+address = 0x8226A4F4
+registers = ["r30", "r5"]
+after_instruction = true
