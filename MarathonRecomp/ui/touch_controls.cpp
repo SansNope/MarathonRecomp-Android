@@ -31,8 +31,8 @@
 //
 // On-screen touch controls with a drag-to-arrange layout editor.
 //
-// Every control (stick, A/B/X/Y, LB/RB, LT/RT, Start/Back) has its own editable
-// position. The Android launcher requests the editor for one launch; each control
+// Each control, including the sticks and D-pad, has its own editable position.
+// The Android launcher requests the editor for one launch; each control
 // can be dragged, the whole set resized, or reset to defaults. The layout is saved
 // to <data>/touch_layout.ini and reloaded on the next launch.
 //
@@ -52,7 +52,8 @@ namespace
         TC_LB, TC_RB,
         TC_LT, TC_RT,
         TC_START, TC_BACK,
-        TC_RSTICK, // appended last so saved layouts from older builds stay valid
+        TC_RSTICK,
+        TC_DPAD,
         TC_COUNT
     };
 
@@ -64,6 +65,7 @@ namespace
     constexpr float RSTICK_BASE_R  = 0.105f;
     constexpr float RSTICK_THUMB_R = 0.050f;
     constexpr float RSTICK_ZONE_R  = 0.150f;
+    constexpr float DPAD_R        = 0.105f;
     // Full camera-stick deflection in touch-area mode at this finger speed
     // (fraction of viewport height per frame).
     constexpr float CAM_DRAG_SENS = 0.0075f;
@@ -97,34 +99,34 @@ namespace
     // which the compressed default packed almost edge to edge.
     const Layout kDefault =
     {
-        //  stick    A       B       X       Y      LB      RB      LT      RT     Start   Back   rstick
-        {  0.135f, 0.865f, 0.927f, 0.803f, 0.865f, 0.075f, 0.925f, 0.075f, 0.925f, 0.555f, 0.445f, 0.680f },
-        {  0.760f, 0.885f, 0.760f, 0.760f, 0.635f, 0.090f, 0.090f, 0.185f, 0.185f, 0.070f, 0.070f, 0.820f },
+        //  stick    A       B       X       Y      LB      RB      LT      RT     Start   Back   rstick   D-pad
+        {  0.135f, 0.865f, 0.927f, 0.803f, 0.865f, 0.075f, 0.925f, 0.075f, 0.925f, 0.555f, 0.445f, 0.680f, 0.250f },
+        {  0.760f, 0.885f, 0.760f, 0.760f, 0.635f, 0.090f, 0.090f, 0.185f, 0.185f, 0.070f, 0.070f, 0.820f, 0.375f },
         1.0f,
-        {  1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f   }
+        {  1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f,   1.0f   }
     };
 
     Layout g_layout = kDefault;
 
     const char* const kIcon[TC_COUNT] =
     {
-        "button_a", // stick (unused)
+        nullptr, // left stick is drawn directly
         "button_a", "button_b", "button_x", "button_y",
         "button_lb", "button_rb",
         "button_lt", "button_rt",
         "button_start", "button_back",
-        "button_a" // rstick (unused)
+        nullptr, nullptr // right stick and D-pad are drawn directly
     };
 
     const char* const kKey[TC_COUNT] =
     {
-        "stick", "a", "b", "x", "y", "lb", "rb", "lt", "rt", "start", "back", "rstick"
+        "stick", "a", "b", "x", "y", "lb", "rb", "lt", "rt", "start", "back", "rstick", "dpad"
     };
 
     // Editor labels for the selected control's size readout.
     const char* const kLabel[TC_COUNT] =
     {
-        "STICK", "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "START", "BACK", "CAMERA"
+        "STICK", "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "START", "BACK", "CAMERA", "D-PAD"
     };
 
     // ---- Finger tracking (SDL touch thread) --------------------------------
@@ -167,8 +169,9 @@ namespace
 
     enum class ETouchContext { Normal, Menu, Cutscene };
 
-    // Finger driving the analog stick (-1 = none). Render-thread only.
+    // Fingers driving the left stick and D-pad (-1 = none). Render-thread only.
     SDL_FingerID g_stickFingerId = (SDL_FingerID)-1;
+    SDL_FingerID g_dpadFingerId = (SDL_FingerID)-1;
 
     // Camera control fingers (render thread only): the virtual right stick, or the
     // free-area camera drag with its last position for per-frame deltas.
@@ -201,6 +204,7 @@ namespace
         const float s = ElemScale(i);
         if (i == TC_STICK)                { const float r = STICK_BASE_R * vh * s; return { c, r, r, true }; }
         if (i == TC_RSTICK)               { const float r = RSTICK_BASE_R * vh * s; return { c, r, r, true }; }
+        if (i == TC_DPAD)                 { const float r = DPAD_R * vh * s; return { c, r, r, true }; }
         if (i >= TC_A && i <= TC_Y)       { const float r = FACE_BTN_R  * vh * s; return { c, r, r, true }; }
         if (i >= TC_LB && i <= TC_RT)     { return { c, SHOULDER_HW * vh * s, SHOULDER_HH * vh * s, false }; }
         return { c, MENU_HW * vh * s, MENU_HH * vh * s, false }; // Start / Back
@@ -366,30 +370,54 @@ namespace
         return pressed;
     }
 
-    // D-pad drawn in place of the left stick while a menu is open. The whole
-    // stick zone is the hit area; direction comes from the finger's angle with
-    // an 8-way split (diagonals press two directions), matching how the game's
-    // menus read the physical D-pad.
-    void DrawDpad(ImDrawList* dl, const std::vector<FingerPt>& fps, ImVec2 c,
-        float baseR, float zoneR, XAMINPUT_GAMEPAD& st)
+    // A finger must start on the D-pad. Keep it until release so a drag across
+    // controls cannot turn into a stick, camera or button press.
+    const FingerPt* FindDpadFinger(const std::vector<FingerPt>& fingers,
+        const std::vector<FingerPt>& fresh, const ElemRect& r)
     {
-        uint16_t bits = 0;
-        for (const auto& fp : fps)
+        for (const auto& finger : fingers)
         {
-            const float dx = fp.pos.x - c.x;
-            const float dy = fp.pos.y - c.y;
-            const float dist2 = dx * dx + dy * dy;
-            if (dist2 > zoneR * zoneR || dist2 < baseR * baseR * 0.04f)
-                continue;
-
-            // 8-way: a component counts when it carries at least half the other.
-            if (std::fabs(dx) >= std::fabs(dy) * 0.5f)
-                bits |= dx > 0.0f ? XAMINPUT_GAMEPAD_DPAD_RIGHT : XAMINPUT_GAMEPAD_DPAD_LEFT;
-            if (std::fabs(dy) >= std::fabs(dx) * 0.5f)
-                bits |= dy > 0.0f ? XAMINPUT_GAMEPAD_DPAD_DOWN : XAMINPUT_GAMEPAD_DPAD_UP;
+            if (finger.id == g_dpadFingerId)
+                return &finger;
         }
-        st.wButtons |= bits;
 
+        g_dpadFingerId = (SDL_FingerID)-1;
+        for (const auto& finger : fresh)
+        {
+            const float dx = finger.pos.x - r.c.x;
+            const float dy = finger.pos.y - r.c.y;
+            if (dx * dx + dy * dy <= r.hw * r.hw)
+            {
+                g_dpadFingerId = finger.id;
+                return &finger;
+            }
+        }
+        return nullptr;
+    }
+
+    uint16_t GetDpadButtons(const FingerPt* finger, const ElemRect& r)
+    {
+        if (!finger)
+            return 0;
+
+        const float dx = finger->pos.x - r.c.x;
+        const float dy = finger->pos.y - r.c.y;
+        const float dist2 = dx * dx + dy * dy;
+        const float radius2 = r.hw * r.hw;
+        if (dist2 > radius2 || dist2 < radius2 * 0.04f)
+            return 0;
+
+        // Diagonals press both directions.
+        uint16_t bits = 0;
+        if (std::fabs(dx) >= std::fabs(dy) * 0.5f)
+            bits |= dx > 0.0f ? XAMINPUT_GAMEPAD_DPAD_RIGHT : XAMINPUT_GAMEPAD_DPAD_LEFT;
+        if (std::fabs(dy) >= std::fabs(dx) * 0.5f)
+            bits |= dy > 0.0f ? XAMINPUT_GAMEPAD_DPAD_DOWN : XAMINPUT_GAMEPAD_DPAD_UP;
+        return bits;
+    }
+
+    void DrawDpad(ImDrawList* dl, ImVec2 c, float baseR, uint16_t bits)
+    {
         dl->AddCircleFilled(c, baseR, IM_COL32(0, 0, 0, bits ? 90 : 55), 48);
         dl->AddCircle(c, baseR, IM_COL32(255, 255, 255, 130), 48, 3.0f);
 
@@ -407,7 +435,7 @@ namespace
                                c.y + d.oy * baseR * 0.38f - d.ox * baseR * 0.26f };
             const ImVec2 b2  { c.x + d.ox * baseR * 0.38f + d.oy * baseR * 0.26f,
                                c.y + d.oy * baseR * 0.38f + d.ox * baseR * 0.26f };
-            const bool on = (st.wButtons & d.bit) != 0;
+            const bool on = (bits & d.bit) != 0;
             dl->AddTriangleFilled(tip, b1, b2, IM_COL32(255, 255, 255, on ? 230 : 120));
         }
     }
@@ -415,6 +443,12 @@ namespace
     // Draw a control's static visual (no press detection) - used by the editor.
     void DrawElemVisual(ImDrawList* dl, int i, const ElemRect& r)
     {
+        if (i == TC_DPAD)
+        {
+            DrawDpad(dl, r.c, r.hw, 0);
+            return;
+        }
+
         if (i == TC_STICK || i == TC_RSTICK)
         {
             dl->AddCircleFilled(r.c, r.hw, IM_COL32(0, 0, 0, 55), 48);
@@ -604,6 +638,7 @@ void TouchControls::Draw()
     {
         PublishState({});
         g_stickFingerId = (SDL_FingerID)-1;
+        g_dpadFingerId = (SDL_FingerID)-1;
         g_rstickFingerId = (SDL_FingerID)-1;
         g_camFingerId = (SDL_FingerID)-1;
         g_dragElem = -1;
@@ -669,13 +704,12 @@ void TouchControls::Draw()
     {
         XAMINPUT_GAMEPAD st{};
 
-        // Adaptive context: cutscenes collapse everything into one SKIP button,
-        // menus swap the analog stick for a D-pad and release the camera finger.
+        // Cutscenes keep the D-pad and show a SKIP button. Menus release the
+        // camera finger while keeping both the analog stick and the D-pad.
         // Cutscenes are Inspire scenes (edge-triggered ctor/dtor hooks) plus live
         // WMV playback such as the attract movie (per-frame stamp from the movie
         // renderer - the movie manager singleton outlives playback, so its mere
-        // presence is not usable as a signal: it locked the whole title screen
-        // into SKIP mode when tried).
+        // presence is not usable as a signal).
         ETouchContext context = ETouchContext::Normal;
         if (g_inspireSceneActive.load(std::memory_order_relaxed) ||
             SDL_GetTicks() - g_movieSeenAtMs.load(std::memory_order_relaxed) < MOVIE_STAMP_FRESH_MS)
@@ -688,11 +722,10 @@ void TouchControls::Draw()
             context = ETouchContext::Menu;
         }
 
-        // The left input renders and reads as a D-pad in menus always, and in
-        // gameplay too when the player opted in (issue #68). Cutscenes use neither.
-        const bool useDpad = context == ETouchContext::Menu ||
-            (context == ETouchContext::Normal &&
-             Config::TouchStickMode.Value == EAndroidTouchStickMode::Dpad);
+        const ElemRect dpad = ElemRectOf(TC_DPAD, vw, vh);
+        const uint16_t dpadButtons = GetDpadButtons(FindDpadFinger(fps, fresh, dpad), dpad);
+        st.wButtons |= dpadButtons;
+        DrawDpad(dl, dpad.c, dpad.hw, dpadButtons);
 
         if (context == ETouchContext::Cutscene)
         {
@@ -709,7 +742,8 @@ void TouchControls::Draw()
             std::vector<ImVec2> pts;
             pts.reserve(fps.size());
             for (const auto& fp : fps)
-                pts.push_back(fp.pos);
+                if (fp.id != g_dpadFingerId)
+                    pts.push_back(fp.pos);
 
             const bool pressed = AnyFingerInRect(pts,
                 { skipC.x - skipHW, skipC.y - skipHH }, { skipC.x + skipHW, skipC.y + skipHH });
@@ -749,6 +783,9 @@ void TouchControls::Draw()
         {
             for (const auto& fp : fps)
             {
+                if (fp.id == g_dpadFingerId)
+                    continue;
+
                 const float dx = fp.pos.x - stickC.x;
                 const float dy = fp.pos.y - stickC.y;
                 if (dx * dx + dy * dy <= zoneR * zoneR)
@@ -762,7 +799,7 @@ void TouchControls::Draw()
 
         ImVec2 thumbPos = stickC;
         bool stickActive = false;
-        if (stickPos && !useDpad)
+        if (stickPos)
         {
             const float dx = stickPos->x - stickC.x;
             const float dy = stickPos->y - stickC.y;
@@ -806,7 +843,7 @@ void TouchControls::Draw()
             {
                 for (const auto& fp : fps)
                 {
-                    if (fp.id == g_stickFingerId)
+                    if (fp.id == g_stickFingerId || fp.id == g_dpadFingerId)
                         continue;
 
                     const float dx = fp.pos.x - rstickC.x;
@@ -866,7 +903,7 @@ void TouchControls::Draw()
             {
                 for (const auto& fp : fresh)
                 {
-                    if (fp.id == g_stickFingerId || fp.pos.x < vw * 0.5f)
+                    if (fp.id == g_stickFingerId || fp.id == g_dpadFingerId || fp.pos.x < vw * 0.5f)
                         continue;
 
                     // A finger that lands on any control belongs to that control.
@@ -910,23 +947,17 @@ void TouchControls::Draw()
             g_camFingerId = (SDL_FingerID)-1;
         }
 
-        // Buttons are hit-tested against every finger except the stick's and the camera's.
+        // Skip fingers already assigned to the sticks, D-pad or camera.
         std::vector<ImVec2> pts;
         pts.reserve(fps.size());
         for (const auto& fp : fps)
-            if (fp.id != g_stickFingerId && fp.id != g_rstickFingerId && fp.id != g_camFingerId)
+            if (fp.id != g_stickFingerId && fp.id != g_dpadFingerId &&
+                fp.id != g_rstickFingerId && fp.id != g_camFingerId)
                 pts.push_back(fp.pos);
 
-        if (useDpad)
-        {
-            DrawDpad(dl, fps, stickC, baseR, zoneR, st);
-        }
-        else
-        {
-            dl->AddCircleFilled(stickC, baseR, IM_COL32(0, 0, 0, stickActive ? 90 : 55), 48);
-            dl->AddCircle(stickC, baseR, IM_COL32(255, 255, 255, 130), 48, 3.0f);
-            dl->AddCircleFilled(thumbPos, thumbR, IM_COL32(255, 255, 255, stickActive ? 170 : 110), 32);
-        }
+        dl->AddCircleFilled(stickC, baseR, IM_COL32(0, 0, 0, stickActive ? 90 : 55), 48);
+        dl->AddCircle(stickC, baseR, IM_COL32(255, 255, 255, 130), 48, 3.0f);
+        dl->AddCircleFilled(thumbPos, thumbR, IM_COL32(255, 255, 255, stickActive ? 170 : 110), 32);
 
         // ---- Face buttons ----
         auto faceButton = [&](int i, const char* icon, uint16_t bit)
@@ -983,6 +1014,7 @@ void TouchControls::Draw()
     // -----------------------------------------------------------------------
     PublishState({});
     g_stickFingerId = (SDL_FingerID)-1;
+    g_dpadFingerId = (SDL_FingerID)-1;
     g_rstickFingerId = (SDL_FingerID)-1;
     g_camFingerId = (SDL_FingerID)-1;
 

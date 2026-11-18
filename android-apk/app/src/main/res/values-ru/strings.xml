@@ -22,7 +22,6 @@
     <string name="launcher_controls">Управление</string>
     <string name="launcher_touch_policy">Экранное управление</string>
     <string name="launcher_touch_camera">Управление камерой</string>
-    <string name="launcher_touch_stick">Левый стик</string>
     <string name="launcher_edit_layout">Расставить экранные кнопки</string>
     <string name="launcher_section_advanced">Дополнительно</string>
     <string name="launcher_debug">Отладка</string>
@@ -70,9 +69,6 @@
     </string-array>
     <string-array name="touch_camera_labels">
         <item>Свайп по экрану</item><item>Правый стик</item><item>Выкл.</item>
-    </string-array>
-    <string-array name="touch_stick_labels">
-        <item>Аналоговый стик</item><item>Крестовина</item>
     </string-array>
 
     <string name="game_ready_all_dlc">Можно запускать. Найдены игра и все DLC.</string>

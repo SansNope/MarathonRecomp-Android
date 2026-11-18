@@ -4,8 +4,8 @@
 //
 // On-screen touch controls (Android).
 //
-// Renders a virtual gamepad (left analog stick + face/shoulder/trigger/start-back
-// buttons) as an ImGui overlay and synthesises an XAMINPUT_GAMEPAD state that the
+// Renders a virtual gamepad with an analog stick, separate D-pad and buttons
+// as an ImGui overlay and synthesises an XAMINPUT_GAMEPAD state that the
 // HID layer reports for the user that owns the keyboard (player 1 by default)
 // through HID::TouchSDL, merged with the other peripherals of that user.
 //
@@ -34,8 +34,8 @@ public:
     // own); the cutscene flag is edge-triggered from scene ctor/dtor hooks
     // (Sonic 2006 hooks for these are not wired up yet);
     // NotifyMovieVisible is stamped per rendered WMV frame (attract movie, opening
-    // and the like) and decays like the menu flag. In a menu the left stick becomes
-    // a D-pad; in a cutscene or movie everything collapses to a single SKIP button.
+    // and the like) and decays like the menu flag. Menus disable the touch camera.
+    // Cutscenes and movies show the D-pad and a SKIP button.
     static void NotifyMenuVisible();
     static void NotifyCutsceneActive(bool active);
     static void NotifyMovieVisible();

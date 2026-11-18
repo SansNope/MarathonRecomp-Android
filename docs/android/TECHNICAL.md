@@ -70,7 +70,7 @@ Measured from testers' `log.txt` files (`[perf]`, the CPU profiler, `[waits]`/`[
 ## 6. Input
 
 - **On-screen touch controls** (`ui/touch_controls.*`, ported from UnleashedRecomp-Android) with a layout editor started from the launcher, and an `HID::Touch` peripheral attached with the keyboard and mouse of user 1. Touches do not generate mouse events (`SDL_HINT_TOUCH_MOUSE_EVENTS = 0`). Physical gamepad input hides the overlay in Auto mode.
-- Not adapted yet: a D-pad in menus and a single Skip button in cutscenes (the hooks exist, the Sonic 2006 call sites are not wired).
+- Since v0.2.7 the D-pad has its own editable layout element and sends the game's directional button flags independently of the left stick. Existing layouts load the default position for the new element. A dedicated Skip control in cutscenes still needs game-context hooks.
 
 ## 7. Launcher and Android app (`android-apk/`)
 

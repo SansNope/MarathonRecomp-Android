@@ -70,7 +70,6 @@ public final class MarathonLauncherActivity extends Activity {
     private static final String[] RENDER_MODE_VALUES = {"Auto", "GMEM", "Sysmem"};
     private static final String[] TOUCH_POLICY_VALUES = {"Auto", "Always On", "Off"};
     private static final String[] TOUCH_CAMERA_VALUES = {"Touch Area", "Right Stick", "Off"};
-    private static final String[] TOUCH_STICK_VALUES = {"Analog", "D-Pad"};
     // Must match the DLC directories in MarathonRecomp/install/installer.cpp.
     private static final String[] DLC_DIRECTORIES = {
         "Additional Episode - Sonic Boss Attack", "Additional Episode - Shadow Boss Attack",
@@ -121,7 +120,6 @@ public final class MarathonLauncherActivity extends Activity {
     private Spinner renderSpinner;
     private Spinner touchPolicySpinner;
     private Spinner touchCameraSpinner;
-    private Spinner touchStickSpinner;
     private CompoundButton skipIntro;
     private CompoundButton overlaySwitch;
     private CompoundButton perfLogSwitch;
@@ -359,8 +357,6 @@ public final class MarathonLauncherActivity extends Activity {
         settingRow(section, R.string.launcher_touch_policy, touchPolicySpinner);
         touchCameraSpinner = spinner(R.array.touch_camera_labels);
         settingRow(section, R.string.launcher_touch_camera, touchCameraSpinner);
-        touchStickSpinner = spinner(R.array.touch_stick_labels);
-        settingRow(section, R.string.launcher_touch_stick, touchStickSpinner);
         buttonGrid(section, button(R.string.launcher_edit_layout, view -> launchLayoutEditor()));
     }
 
@@ -646,7 +642,6 @@ public final class MarathonLauncherActivity extends Activity {
         select(renderSpinner, config.get("Video.RenderMode"), RENDER_MODE_VALUES);
         select(touchPolicySpinner, config.get("Input.TouchControls"), TOUCH_POLICY_VALUES);
         select(touchCameraSpinner, config.get("Input.TouchCamera"), TOUCH_CAMERA_VALUES);
-        select(touchStickSpinner, config.get("Input.TouchStickMode"), TOUCH_STICK_VALUES);
         applyDriverPresetToLauncher();
         skipIntro.setChecked(prefs.getBoolean("skip_logos", false));
         loadGameSwitches();
@@ -718,7 +713,6 @@ public final class MarathonLauncherActivity extends Activity {
         values.put("Video.RenderMode", quote(RENDER_MODE_VALUES[renderSpinner.getSelectedItemPosition()]));
         values.put("Input.TouchControls", quote(TOUCH_POLICY_VALUES[touchPolicySpinner.getSelectedItemPosition()]));
         values.put("Input.TouchCamera", quote(TOUCH_CAMERA_VALUES[touchCameraSpinner.getSelectedItemPosition()]));
-        values.put("Input.TouchStickMode", quote(TOUCH_STICK_VALUES[touchStickSpinner.getSelectedItemPosition()]));
         prefs.edit().putBoolean("skip_logos", skipIntro.isChecked()).apply();
         try {
             AppStorage.validateRoot(this, AppStorage.activeGameRoot(this));

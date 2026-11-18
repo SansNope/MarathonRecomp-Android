@@ -23,7 +23,6 @@ CONFIG_DEFINE_ENUM_LOCALISED("Input", ESlidingAttack, SlidingAttack, ESlidingAtt
 // Set from the Android launcher; not shown in the in-game options menu yet.
 CONFIG_DEFINE_ENUM("Input", EAndroidTouchControlsPolicy, TouchControls, EAndroidTouchControlsPolicy::Auto, false);
 CONFIG_DEFINE_ENUM("Input", EAndroidTouchCameraMode, TouchCamera, EAndroidTouchCameraMode::TouchArea, false);
-CONFIG_DEFINE_ENUM("Input", EAndroidTouchStickMode, TouchStickMode, EAndroidTouchStickMode::Analog, false);
 #endif
 
 // TODO: action remapping!!

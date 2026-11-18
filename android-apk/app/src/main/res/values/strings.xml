@@ -25,7 +25,6 @@
     <string name="launcher_controls">Controls</string>
     <string name="launcher_touch_policy">On-screen controls</string>
     <string name="launcher_touch_camera">Camera control</string>
-    <string name="launcher_touch_stick">Left stick style</string>
     <string name="launcher_edit_layout">Arrange touch controls</string>
     <string name="launcher_section_advanced">Advanced</string>
     <string name="launcher_debug">Debug options</string>
@@ -73,9 +72,6 @@
     </string-array>
     <string-array name="touch_camera_labels">
         <item>Swipe on screen</item><item>Right stick</item><item>Off</item>
-    </string-array>
-    <string-array name="touch_stick_labels">
-        <item>Analog stick</item><item>D-pad</item>
     </string-array>
 
     <string name="game_ready_all_dlc">Ready to launch. The game and all DLC packs were detected.</string>

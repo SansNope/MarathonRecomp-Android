@@ -125,14 +125,18 @@ void KiSystemStartup()
     XamContentCreateEx(0, "D", &gameContent, OPEN_EXISTING, nullptr, nullptr, 0, 0, nullptr);
 
     std::error_code ec;
-    for (auto& file : std::filesystem::directory_iterator(GetGamePath() / "dlc", ec))
+    for (std::filesystem::directory_iterator it(GetGamePath() / "dlc", ec), end;
+        !ec && it != end; it.increment(ec))
     {
-        if (file.is_directory())
-        {
-            std::u8string fileNameU8 = file.path().filename().u8string();
-            std::u8string filePathU8 = file.path().u8string();
-            XamRegisterContent(XamMakeContent(XCONTENTTYPE_DLC, (const char*)(fileNameU8.c_str())), (const char*)(filePathU8.c_str()));
-        }
+        const auto& path = it->path();
+        std::error_code archiveError;
+        // The game tries to open download.arc for every registered DLC.
+        if (!std::filesystem::is_regular_file(path / "download.arc", archiveError))
+            continue;
+
+        std::u8string fileNameU8 = path.filename().u8string();
+        std::u8string filePathU8 = path.u8string();
+        XamRegisterContent(XamMakeContent(XCONTENTTYPE_DLC, (const char*)(fileNameU8.c_str())), (const char*)(filePathU8.c_str()));
     }
 
     XAudioInitializeSystem();

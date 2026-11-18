@@ -87,13 +87,6 @@ enum class EAndroidTouchCameraMode : uint32_t
     Off
 };
 
-// On-screen left input style: the analog thumbstick, or an 8-way D-pad in place of it.
-enum class EAndroidTouchStickMode : uint32_t
-{
-    Analog,
-    Dpad
-};
-
 enum class EAndroidVulkanDriver : uint32_t
 {
     Auto,
