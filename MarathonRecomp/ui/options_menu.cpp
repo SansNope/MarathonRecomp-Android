@@ -14,6 +14,7 @@
 #include <app.h>
 #include <decompressor.h>
 #include <exports.h>
+#include <string_view>
 
 static constexpr int MAX_VISIBLE_ROWS = 3;
 
@@ -316,7 +317,8 @@ static void DrawOption
     T valueCentre = T(0.5),
     T valueMax = T(1),
     bool isSlider = true,
-    bool isInterpolatedString = false
+    bool isInterpolatedString = false,
+    std::string_view displayedValue = {}
 )
 {
     auto drawList = ImGui::GetBackgroundDrawList();
@@ -794,7 +796,7 @@ static void DrawOption
     }
     else
     {
-        valueText = config->GetValueLocalised(Config::Language);
+        valueText = displayedValue.empty() ? config->GetValueLocalised(Config::Language) : std::string(displayedValue);
         isValueCentred = true;
     }
 
@@ -895,9 +897,19 @@ static void DrawOptions(ImVec2 min, ImVec2 max)
             DrawOption(rowCount++, &Config::Brightness, true);
             DrawOption(rowCount++, &Config::AntiAliasing, false, devReason);                           // TODO: implement MSAA.          DrawOption(rowCount++, &Config::AntiAliasing, Config::AntiAliasing.InaccessibleValues.size() != 3, &Localise("Options_Desc_NotAvailableHardware"));
             DrawOption(rowCount++, &Config::TransparencyAntiAliasing, false, devReason);               // TODO: implement MSAA.          DrawOption(rowCount++, &Config::TransparencyAntiAliasing, Config::AntiAliasing != EAntiAliasing::Off, &Localise("Options_Desc_NotAvailableMSAA"));
-            DrawOption(rowCount++, &Config::ShadowResolution, true);
-            DrawOption(rowCount++, &Config::ReflectionResolution, true);
-            DrawOption(rowCount++, &Config::RadialBlur, true);
+            const bool lowGraphics = Config::IsLowGraphicsEnabled();
+            auto lowGraphicsReason = lowGraphics ? &Localise("Options_Desc_LowGraphics") : nullptr;
+            const auto drawQualityOption = [&]<typename T>(ConfigDef<T>* config, T effectiveValue)
+            {
+                const std::string value = lowGraphics
+                    ? config->GetValueLocalised(Config::Language, effectiveValue)
+                    : std::string{};
+                DrawOption(rowCount++, config, !lowGraphics, lowGraphicsReason, ENUM_VALUE(T), false, false,
+                    value);
+            };
+            drawQualityOption(&Config::ShadowResolution, Config::GetEffectiveShadowResolution());
+            drawQualityOption(&Config::ReflectionResolution, Config::GetEffectiveReflectionResolution());
+            drawQualityOption(&Config::RadialBlur, Config::GetEffectiveRadialBlur());
             DrawOption(rowCount++, &Config::CutsceneAspectRatio, true);
             DrawOption(rowCount++, &Config::UIAlignmentMode, true);
 

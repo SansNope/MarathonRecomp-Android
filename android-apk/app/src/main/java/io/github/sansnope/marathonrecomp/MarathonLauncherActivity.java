@@ -118,6 +118,8 @@ public final class MarathonLauncherActivity extends Activity {
     private Button playButton;
     private Spinner driverSpinner;
     private Spinner renderSpinner;
+    private CompoundButton lowGraphicsSwitch;
+    private CompoundButton reducedOutputSwitch;
     private Spinner touchPolicySpinner;
     private Spinner touchCameraSpinner;
     private CompoundButton skipIntro;
@@ -350,6 +352,14 @@ public final class MarathonLauncherActivity extends Activity {
         buttonGrid(section,
             button(R.string.launcher_import_driver, view -> chooseDriver()),
             button(R.string.launcher_driver_folder, view -> openFiles("transfer")));
+        lowGraphicsSwitch = switchRow(section, R.string.launcher_low_graphics);
+        reducedOutputSwitch = switchRow(section, R.string.launcher_reduced_output);
+        recommend(lowGraphicsSwitch, false);
+        recommend(reducedOutputSwitch, false);
+        TextView graphicsHint = statusText();
+        graphicsHint.setText(R.string.launcher_low_graphics_hint);
+        graphicsHint.setPadding(0, dp(8), 0, dp(8));
+        section.addView(graphicsHint, matchWrap());
     }
 
     private void buildControlsSection(LinearLayout section) {
@@ -650,6 +660,8 @@ public final class MarathonLauncherActivity extends Activity {
     // The game-side switches are marker files in the game root, read by the game at startup:
     // diagnostics are opt-in, the shader cache and the thread pinning are on unless disabled.
     private static final String MARKER_OVERLAY = "overlay.enabled";
+    private static final String MARKER_LOW_GRAPHICS = "low_graphics.enabled";
+    private static final String MARKER_REDUCED_OUTPUT = "reduced_output.enabled";
     private static final String MARKER_PERF_LOG = "perf_capture.enabled";
     private static final String MARKER_PROFILER = "perf_sampling.enabled";
     private static final String MARKER_NO_PIPELINE_CACHE = "pipeline_cache.disabled";
@@ -678,6 +690,8 @@ public final class MarathonLauncherActivity extends Activity {
             automatic.delete();
         }
         new File(root, MARKER_OLD_TEXTURE_CACHE).delete();
+        lowGraphicsSwitch.setChecked(new File(root, MARKER_LOW_GRAPHICS).isFile());
+        reducedOutputSwitch.setChecked(new File(root, MARKER_REDUCED_OUTPUT).isFile());
         overlaySwitch.setChecked(new File(root, MARKER_OVERLAY).isFile());
         perfLogSwitch.setChecked(new File(root, MARKER_PERF_LOG).isFile());
         profilerSwitch.setChecked(new File(root, MARKER_PROFILER).isFile());
@@ -693,6 +707,8 @@ public final class MarathonLauncherActivity extends Activity {
     }
 
     private void saveGameSwitches(File root) throws IOException {
+        setMarker(new File(root, MARKER_LOW_GRAPHICS), lowGraphicsSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_REDUCED_OUTPUT), reducedOutputSwitch.isChecked(), "");
         setMarker(new File(root, MARKER_OVERLAY), overlaySwitch.isChecked(), "");
         setMarker(new File(root, MARKER_PERF_LOG), perfLogSwitch.isChecked(), "");
         setMarker(new File(root, MARKER_PROFILER), profilerSwitch.isChecked(), "");

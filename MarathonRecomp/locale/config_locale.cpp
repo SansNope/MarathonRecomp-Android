@@ -1017,12 +1017,18 @@ CONFIG_DEFINE_ENUM_LOCALE(EReflectionResolution)
     {
         ELanguage::English,
         {
+            { EReflectionResolution::Off, { "Off", "" } },
             { EReflectionResolution::Eighth, { "12.5%", "" } },
             { EReflectionResolution::Quarter, { "25%", "" } },
             { EReflectionResolution::Half, { "50%", "" } },
             { EReflectionResolution::Full, { "100%", "" } }
         }
-    }
+    },
+    { ELanguage::Japanese, { { EReflectionResolution::Off, { "オフ", "" } } } },
+    { ELanguage::German,   { { EReflectionResolution::Off, { "Aus", "" } } } },
+    { ELanguage::French,   { { EReflectionResolution::Off, { "Non", "" } } } },
+    { ELanguage::Spanish,  { { EReflectionResolution::Off, { "No", "" } } } },
+    { ELanguage::Italian,  { { EReflectionResolution::Off, { "Off", "" } } } }
 };
 
 CONFIG_DEFINE_LOCALE(RadialBlur)

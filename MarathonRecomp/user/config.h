@@ -173,6 +173,7 @@ enum class EShadowResolution : int32_t
 
 enum class EReflectionResolution : int32_t
 {
+    Off = -1,
     Eighth,
     Quarter,
     Half,
@@ -270,6 +271,7 @@ public:
     bool IsDefaultValue() const override;
     const void* GetValue() const override;
     std::string GetValueLocalised(ELanguage language) const override;
+    std::string GetValueLocalised(ELanguage language, const T& value) const;
     std::string GetValueDescription(ELanguage language) const override;
     std::string GetDefinition(bool withSection = false) const override;
     std::string ToString(bool strWithQuotes = true) const override;
@@ -311,6 +313,12 @@ public:
     static void CreateCallbacks();
     static void Load();
     static void Save();
+
+    static bool IsLowGraphicsEnabled();
+    static EShadowResolution GetEffectiveShadowResolution();
+    static EReflectionResolution GetEffectiveReflectionResolution();
+    static ERadialBlur GetEffectiveRadialBlur();
+    static uint32_t GetEffectiveAnisotropicFiltering();
 
     static EControllerIcons GetPreferredControllerIcons(uint32_t in_userId = 0);
 };

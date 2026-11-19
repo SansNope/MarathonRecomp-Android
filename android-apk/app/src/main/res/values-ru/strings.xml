@@ -14,9 +14,12 @@
     <string name="launcher_recheck">Проверить снова</string>
     <string name="launcher_install_game">Установить игру / DLC (.zip / папка)</string>
     <string name="launcher_section_graphics">Графика</string>
-    <string name="launcher_graphics">Графический драйвер</string>
+    <string name="launcher_graphics">Графика</string>
     <string name="launcher_driver">Драйвер Vulkan</string>
     <string name="launcher_render_mode">Режим рендера Turnip</string>
+    <string name="launcher_low_graphics">Облегчённая графика</string>
+    <string name="launcher_reduced_output">Уменьшенное разрешение вывода (75%)</string>
+    <string name="launcher_low_graphics_hint">Облегчённая графика упрощает тени и фильтрацию текстур, отключает динамические отражения и радиальное размытие. Уменьшение разрешения вывода влияет на чёткость интерфейса. Нажмите «Играть», чтобы сохранить настройки. Они вступят в силу после полного перезапуска игры.</string>
     <string name="launcher_import_driver">Импорт .so / .zip</string>
     <string name="launcher_driver_folder">Папка драйверов</string>
     <string name="launcher_controls">Управление</string>

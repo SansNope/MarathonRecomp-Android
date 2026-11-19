@@ -10,6 +10,7 @@
 #include <plume_render_interface.h>
 #include <os/logger.h>
 #include <cstdint>
+#include <utility>
 
 #define D3DCLEAR_TARGET  0x1
 #define D3DCLEAR_ZBUFFER 0x10
@@ -37,6 +38,7 @@ struct Video
     static void Resize(uint32_t width, uint32_t height);
     static void StartPipelinePrecompilation();
     static void WaitForGPU();
+    static std::pair<uint32_t, uint32_t> GetOutputSize();
     static void ComputeViewportDimensions();
 };
 

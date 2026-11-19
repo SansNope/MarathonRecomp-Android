@@ -17,9 +17,12 @@
     <string name="launcher_recheck">Check again</string>
     <string name="launcher_install_game">Install game / DLC (.zip / folder)</string>
     <string name="launcher_section_graphics">Graphics</string>
-    <string name="launcher_graphics">Graphics driver</string>
+    <string name="launcher_graphics">Graphics</string>
     <string name="launcher_driver">Vulkan driver</string>
     <string name="launcher_render_mode">Turnip render mode</string>
+    <string name="launcher_low_graphics">Low graphics</string>
+    <string name="launcher_reduced_output">Reduced output resolution (75%)</string>
+    <string name="launcher_low_graphics_hint">Low graphics simplifies shadows and texture filtering and turns off real-time reflections and radial blur. Reduced output resolution also affects HUD sharpness. Select Play to save these settings. They take effect after a full game restart.</string>
     <string name="launcher_import_driver">Import .so / .zip</string>
     <string name="launcher_driver_folder">Driver folder</string>
     <string name="launcher_controls">Controls</string>

@@ -40,6 +40,7 @@
 #include <os/thread.h>
 #ifdef __ANDROID__
 #define BCDEC_IMPLEMENTATION
+#include <android/native_window.h>
 #include <bcdec.h>
 #include <ProcessRGB.hpp>
 #include <os/android/vulkan_driver_android.h>
@@ -2666,7 +2667,10 @@ static void CheckSwapChain()
         }
         else
         {
-            LOGF("Swap chain (re)created: {}x{}, pre-rotation {} degrees, {} images.", g_swapChain->getWidth(), g_swapChain->getHeight(), g_swapChain->getPreRotation(), g_swapChain->getTextureCount());
+            LOGF("Swap chain (re)created: {}x{}, pre-rotation {} degrees, {} images (window {}x{}).",
+                g_swapChain->getWidth(), g_swapChain->getHeight(), g_swapChain->getPreRotation(),
+                g_swapChain->getTextureCount(), ANativeWindow_getWidth(currentNativeWindow),
+                ANativeWindow_getHeight(currentNativeWindow));
         }
 #endif
     }
@@ -3352,6 +3356,18 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     swapChainDesc.format = BACKBUFFER_FORMAT;
     swapChainDesc.maxFrameLatency = Config::MaxFrameLatency;
     swapChainDesc.enablePresentWait = g_capabilities.presentWait;
+
+#ifdef __ANDROID__
+    std::error_code outputScaleError;
+    if (std::filesystem::is_regular_file(os::android::GetDataRoot() / "reduced_output.enabled", outputScaleError))
+        swapChainDesc.outputScalePercent = 75;
+    LOGF("[graphics] Low graphics: {}, requested output: {}%, shadows: {}, reflections: {}, radial blur: {}, anisotropy: {}x.",
+        Config::IsLowGraphicsEnabled(), swapChainDesc.outputScalePercent,
+        static_cast<int>(Config::GetEffectiveShadowResolution()),
+        Config::ReflectionResolution.GetValueLocalised(ELanguage::English, Config::GetEffectiveReflectionResolution()),
+        Config::RadialBlur.GetValueLocalised(ELanguage::English, Config::GetEffectiveRadialBlur()),
+        Config::GetEffectiveAnisotropicFiltering());
+#endif
 
     g_swapChain = g_queue->createSwapChain(swapChainDesc);
     g_swapChain->setVsyncEnabled(Config::VSync);
@@ -4959,9 +4975,8 @@ void Video::Resize(uint32_t width, uint32_t height)
     if (!pRenderTargetContainer || !pMyGraphicsDevice)
         return;
 
-    // The back buffer (and front buffer) keep the full viewport size: the game composes the
-    // scaled scene into it with its own "Rasterize" pass and draws the 2D/HUD layout, which
-    // is computed for the full viewport (AspectRatioPatches), on top at native resolution.
+    // The back buffer and HUD use the output viewport. ResolutionScale only shrinks the
+    // scene the game composites into it with its "Rasterize" pass.
     const uint32_t backBufferWidth = width;
     const uint32_t backBufferHeight = height;
 
@@ -5340,6 +5355,11 @@ static GuestSurface* GetDepthStencil()
         g_depthStencil->AddRef();
 
     return g_depthStencil;
+}
+
+std::pair<uint32_t, uint32_t> Video::GetOutputSize()
+{
+    return { g_swapChain->getWidth(), g_swapChain->getHeight() };
 }
 
 void Video::ComputeViewportDimensions()
@@ -6513,12 +6533,12 @@ static RenderShader* GetReplacementShader(GuestShader* guestShader)
         {
         case 0x3687D038CE7D0BEA:
         case 0xB4DA7A442DBB16CC:
-            if (Config::RadialBlur == ERadialBlur::Enhanced)
+            if (Config::GetEffectiveRadialBlur() == ERadialBlur::Enhanced)
                 return g_enhancedBurnoutBlurVSShader.get();
             break;
         case 0xDA58F0110A8595D9:
         case 0x845A4EF989446C01:
-            if (Config::RadialBlur == ERadialBlur::Enhanced)
+            if (Config::GetEffectiveRadialBlur() == ERadialBlur::Enhanced)
                 return g_enhancedBurnoutBlurPSShader.get();
             break;
         case 0x88EB0AA82E4257B0:
@@ -7345,7 +7365,8 @@ static void ProcSetSamplerState(const RenderCommand& cmd)
     auto mipFilter = ConvertTextureFilter((args.data3 >> 23) & 0x3);
     const auto borderColor = ConvertBorderColor(args.data5 & 0x3);
 
-    bool anisotropyEnabled = Config::AnisotropicFiltering > 0 && mipFilter == RenderFilter::LINEAR;
+    const uint32_t anisotropy = Config::GetEffectiveAnisotropicFiltering();
+    bool anisotropyEnabled = anisotropy > 0 && mipFilter == RenderFilter::LINEAR;
     if (anisotropyEnabled)
     {
         magFilter = RenderFilter::LINEAR;
@@ -7362,7 +7383,7 @@ static void ProcSetSamplerState(const RenderCommand& cmd)
     SetDirtyValue(dirty, samplerDesc.minFilter, minFilter);
     SetDirtyValue(dirty, samplerDesc.magFilter, magFilter);
     SetDirtyValue(dirty, samplerDesc.mipmapMode, RenderMipmapMode(mipFilter));
-    SetDirtyValue(dirty, samplerDesc.maxAnisotropy, anisotropyEnabled ? Config::AnisotropicFiltering : 1u);
+    SetDirtyValue(dirty, samplerDesc.maxAnisotropy, anisotropyEnabled ? anisotropy : 1u);
     SetDirtyValue(dirty, samplerDesc.anisotropyEnabled, anisotropyEnabled);
     SetDirtyValue(dirty, samplerDesc.borderColor, borderColor);
 
@@ -9255,7 +9276,7 @@ void IndexBufferLengthMidAsmHook(PPCRegister& r3)
 
 void SetShadowResolutionMidAsmHook(PPCRegister& r11)
 {
-    auto res = (int32_t)Config::ShadowResolution.Value;
+    auto res = static_cast<int32_t>(Config::GetEffectiveShadowResolution());
 
     if (res > 0)
         r11.u64 = res;

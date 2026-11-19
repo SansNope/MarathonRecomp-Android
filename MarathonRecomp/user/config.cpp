@@ -5,6 +5,9 @@
 #include <ui/options_menu.h>
 #include <user/paths.h>
 #include <app.h>
+#ifdef __ANDROID__
+#include <os/android/storage_android.h>
+#endif
 
 std::vector<IConfigDef*> g_configDefinitions;
 
@@ -597,6 +600,12 @@ const void* ConfigDef<T, isHidden>::GetValue() const
 template<typename T, bool isHidden>
 std::string ConfigDef<T, isHidden>::GetValueLocalised(ELanguage language) const
 {
+    return GetValueLocalised(language, Value);
+}
+
+template<typename T, bool isHidden>
+std::string ConfigDef<T, isHidden>::GetValueLocalised(ELanguage language, const T& value) const
+{
     CONFIG_ENUM_LOCALE(T)* locale = nullptr;
 
     if constexpr (std::is_enum_v<T>)
@@ -605,7 +614,7 @@ std::string ConfigDef<T, isHidden>::GetValueLocalised(ELanguage language) const
     }
     else if constexpr (std::is_same_v<T, bool>)
     {
-        return Value
+        return value
             ? Localise("Common_On")
             : Localise("Common_Off");
     }
@@ -620,7 +629,7 @@ std::string ConfigDef<T, isHidden>::GetValueLocalised(ELanguage language) const
 
             if (languageFindResult != locale->end())
             {
-                auto valueFindResult = languageFindResult->second.find(Value);
+                auto valueFindResult = languageFindResult->second.find(value);
                 if (valueFindResult != languageFindResult->second.end())
                     return std::get<0>(valueFindResult->second);
             }
@@ -630,8 +639,18 @@ std::string ConfigDef<T, isHidden>::GetValueLocalised(ELanguage language) const
         }
     }
 
+    if constexpr (std::is_enum_v<T>)
+    {
+        auto it = EnumTemplateReverse.find(value);
+        return it != EnumTemplateReverse.end() ? std::string(it->second) : "N/A";
+    }
+
     return ToString(false);
 }
+
+template std::string ConfigDef<EShadowResolution>::GetValueLocalised(ELanguage, const EShadowResolution&) const;
+template std::string ConfigDef<EReflectionResolution>::GetValueLocalised(ELanguage, const EReflectionResolution&) const;
+template std::string ConfigDef<ERadialBlur>::GetValueLocalised(ELanguage, const ERadialBlur&) const;
 
 template<typename T, bool isHidden>
 std::string ConfigDef<T, isHidden>::GetValueDescription(ELanguage language) const
@@ -944,6 +963,40 @@ void Config::Save()
     {
         LOGN_ERROR("Failed to write configuration.");
     }
+}
+
+bool Config::IsLowGraphicsEnabled()
+{
+#ifdef __ANDROID__
+    static const bool enabled = []
+    {
+        std::error_code error;
+        return std::filesystem::is_regular_file(os::android::GetDataRoot() / "low_graphics.enabled", error);
+    }();
+    return enabled;
+#else
+    return false;
+#endif
+}
+
+EShadowResolution Config::GetEffectiveShadowResolution()
+{
+    return IsLowGraphicsEnabled() ? EShadowResolution::x512 : ShadowResolution.Value;
+}
+
+EReflectionResolution Config::GetEffectiveReflectionResolution()
+{
+    return IsLowGraphicsEnabled() ? EReflectionResolution::Off : ReflectionResolution.Value;
+}
+
+ERadialBlur Config::GetEffectiveRadialBlur()
+{
+    return IsLowGraphicsEnabled() ? ERadialBlur::Off : RadialBlur.Value;
+}
+
+uint32_t Config::GetEffectiveAnisotropicFiltering()
+{
+    return IsLowGraphicsEnabled() ? std::min(AnisotropicFiltering.Value, 2u) : AnisotropicFiltering.Value;
 }
 
 EControllerIcons Config::GetPreferredControllerIcons(uint32_t in_userId)

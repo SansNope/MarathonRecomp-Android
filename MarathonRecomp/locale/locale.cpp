@@ -293,6 +293,17 @@ std::unordered_map<std::string_view, std::unordered_map<ELanguage, std::string>>
         }
     },
     {
+        "Options_Desc_LowGraphics",
+        {
+            { ELanguage::English,  "Controlled by Low graphics in the launcher." },
+            { ELanguage::Japanese, "ランチャーの軽量グラフィック設定で変更できます。" },
+            { ELanguage::German,   "Diese Einstellung wird im Launcher durch die niedrige Grafikqualität festgelegt." },
+            { ELanguage::French,   "Cette option est gérée par le mode graphique allégé du lanceur." },
+            { ELanguage::Spanish,  "Esta opción se controla con el modo gráfico reducido del lanzador." },
+            { ELanguage::Italian,  "Questa opzione è gestita dalla modalità grafica ridotta nel launcher." }
+        }
+    },
+    {
         // Notes: description for Music Attenuation when the user is not running a supported OS.
         "Options_Desc_OSNotSupported",
         {

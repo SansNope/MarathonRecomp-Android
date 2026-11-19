@@ -4,6 +4,8 @@
 #include <os/logger.h>
 #include <patches/aspect_ratio_patches.h>
 #include <user/config.h>
+#include <cstring>
+#include <string_view>
 
 const char* g_pBlockName{};
 
@@ -57,6 +59,7 @@ PPC_FUNC(sub_826078D8)
 
 float ReflectionScaleFactor(EReflectionResolution ref) {
     switch (ref) {
+        case EReflectionResolution::Off:
         case EReflectionResolution::Eighth:
             return 0.5f;
         case EReflectionResolution::Quarter:
@@ -69,6 +72,55 @@ float ReflectionScaleFactor(EReflectionResolution ref) {
             return 1.0f;
     }
 }
+
+#ifdef __ANDROID__
+// Lua 5.0's binary chunk loader returns a Proto before the root chunk executes.
+PPC_FUNC_IMPL(__imp__sub_825E3D80);
+PPC_FUNC(sub_825E3D80)
+{
+    __imp__sub_825E3D80(ctx, base);
+
+    const uint32_t prototype = ctx.r3.u32;
+    if (!prototype || Config::GetEffectiveReflectionResolution() != EReflectionResolution::Off)
+        return;
+
+    // Match the stock render_reflection.lub root. Its first two instructions
+    // set EnableReflection = true, followed by the two function definitions.
+    constexpr uint32_t loadTrueIntoR0 = 0x8002;
+    constexpr uint32_t loadFalseIntoR0 = 0x0002;
+    constexpr uint32_t setFirstGlobalFromR0 = 0x0007;
+    constexpr uint32_t luaValueSize = 16;
+    if (PPC_LOAD_U32(prototype + 40) != 3 || PPC_LOAD_U32(prototype + 44) != 7)
+        return;
+
+    const uint32_t constants = PPC_LOAD_U32(prototype + 8);
+    const uint32_t code = PPC_LOAD_U32(prototype + 12);
+    if (!constants || !code ||
+        PPC_LOAD_U32(code) != loadTrueIntoR0 || PPC_LOAD_U32(code + 4) != setFirstGlobalFromR0)
+        return;
+
+    const auto hasStringConstant = [base](uint32_t value, std::string_view expected)
+    {
+        constexpr uint32_t luaStringType = 4;
+        if (PPC_LOAD_U32(value) != luaStringType)
+            return false;
+
+        const uint32_t string = PPC_LOAD_U32(value + 8);
+        return string && PPC_LOAD_U32(string + 12) == expected.size() &&
+            std::memcmp(base + string + 16, expected.data(), expected.size()) == 0;
+    };
+
+    if (hasStringConstant(constants, "EnableReflection") &&
+        hasStringConstant(constants + luaValueSize, "CreateReflectionTexture") &&
+        hasStringConstant(constants + 2 * luaValueSize, "RenderReflection"))
+    {
+        // Use the same branch as cutscenes: it keeps the neutral texture and
+        // its bindings while skipping the reflected geometry and sky.
+        PPC_STORE_U32(code, loadFalseIntoR0);
+        LOG("[graphics] Real-time reflections disabled in render_reflection.");
+    }
+}
+#endif
 
 // CreateTexture
 PPC_FUNC_IMPL(__imp__sub_82619D00);
@@ -84,17 +136,17 @@ PPC_FUNC(sub_82619D00)
 
     if (*pName == "reflection0")
     {
-        ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) *
-            ReflectionScaleFactor(Config::ReflectionResolution));
-        ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) *
-            ReflectionScaleFactor(Config::ReflectionResolution));
+        const float scale = ReflectionScaleFactor(Config::GetEffectiveReflectionResolution());
+        ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) * scale);
+        ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) * scale);
     }
 
     // RenderMefiress
     if (*pName == "user0")
     {
-        ctx.r5.u32 = static_cast<int>(Config::ShadowResolution.Value);
-        ctx.r6.u32 = static_cast<int>(Config::ShadowResolution.Value);
+        const auto resolution = static_cast<uint32_t>(Config::GetEffectiveShadowResolution());
+        ctx.r5.u32 = resolution;
+        ctx.r6.u32 = resolution;
     }
 
 #if _DEBUG
@@ -128,17 +180,17 @@ PPC_FUNC(sub_82619B88)
         // RenderMefiress
         if (strcmp(g_pBlockName, "user0") == 0 && *pName == "depthstencil_256")
         {
-            ctx.r5.u32 = static_cast<int>(Config::ShadowResolution.Value);
-            ctx.r6.u32 = static_cast<int>(Config::ShadowResolution.Value);
+            const auto resolution = static_cast<uint32_t>(Config::GetEffectiveShadowResolution());
+            ctx.r5.u32 = resolution;
+            ctx.r6.u32 = resolution;
         }
     }
 
     if (*pName == "depthstencil_1_4")
     {
-        ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) *
-            ReflectionScaleFactor(Config::ReflectionResolution));
-        ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) *
-            ReflectionScaleFactor(Config::ReflectionResolution));
+        const float scale = ReflectionScaleFactor(Config::GetEffectiveReflectionResolution());
+        ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) * scale);
+        ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) * scale);
     }
     
 #if _DEBUG
@@ -187,10 +239,9 @@ PPC_FUNC(sub_82619FF0)
 
     if (*pName == "csm")
     {
-        ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) *
-            ShadowScaleFactor(Config::ShadowResolution));
-        ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) *
-            ShadowScaleFactor(Config::ShadowResolution));
+        const float scale = ShadowScaleFactor(Config::GetEffectiveShadowResolution());
+        ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) * scale);
+        ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) * scale);
     }
 
     g_surfaceCreationName = pName->c_str();
@@ -208,7 +259,7 @@ void GetRenderWorldFBO(PPCRegister& name)
 
 void FurtherObjectShadows(PPCRegister& scope)
 {
-    if (g_renderWorldFBO != "shadowmap")
+    if (g_renderWorldFBO != "shadowmap" || Config::IsLowGraphicsEnabled())
         return;
 
     scope.u32 = 1;
@@ -216,7 +267,7 @@ void FurtherObjectShadows(PPCRegister& scope)
 
 bool DisableRadialBlur()
 {
-    return Config::RadialBlur == ERadialBlur::Off;
+    return Config::GetEffectiveRadialBlur() == ERadialBlur::Off;
 }
 
 bool DisableKingdomValleyMist()

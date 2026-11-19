@@ -1,7 +1,6 @@
 #include <stdafx.h>
 #include "touch_controls.h"
 #include "imgui_utils.h"
-#include "game_window.h"
 #include "options_menu.h"
 #include <gpu/video.h>
 #include <sdl_listener.h>
@@ -654,13 +653,11 @@ void TouchControls::Draw()
     if (vw <= 0.0f || vh <= 0.0f)
         return;
 
-    // Map normalised finger coordinates (over the window/swapchain) into ImGui
-    // viewport space (the viewport is centred within the swapchain for some
-    // aspect-ratio settings).
-    int pw = 0, ph = 0;
-    GameWindow::GetSizeInPixels(&pw, &ph);
-    const float sw = pw > 0 ? float(pw) : vw;
-    const float sh = ph > 0 ? float(ph) : vh;
+    // SDL fingers cover the window. Convert to the swapchain's logical pixels
+    // before subtracting the viewport offset, including when Android scales the output.
+    const auto [outputWidth, outputHeight] = Video::GetOutputSize();
+    const float sw = outputWidth > 0 ? float(outputWidth) : vw;
+    const float sh = outputHeight > 0 ? float(outputHeight) : vh;
     const float offX = (sw - vw) * 0.5f;
     const float offY = (sh - vh) * 0.5f;
 
