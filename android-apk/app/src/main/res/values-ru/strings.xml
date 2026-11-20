@@ -19,7 +19,11 @@
     <string name="launcher_render_mode">Режим рендера Turnip</string>
     <string name="launcher_low_graphics">Облегчённая графика</string>
     <string name="launcher_reduced_output">Уменьшенное разрешение вывода (75%)</string>
-    <string name="launcher_low_graphics_hint">Облегчённая графика упрощает тени и фильтрацию текстур, отключает динамические отражения и радиальное размытие. Уменьшение разрешения вывода влияет на чёткость интерфейса. Нажмите «Играть», чтобы сохранить настройки. Они вступят в силу после полного перезапуска игры.</string>
+    <string name="launcher_shadow_map_resolution">Качество теней мира</string>
+    <string name="launcher_limit_object_shadows">Полные тени от объектов только в двух каскадах</string>
+    <string name="launcher_short_shadow_distance">Сократить дальность теней (экспериментально)</string>
+    <string name="launcher_disable_bloom">Отключить свечение (bloom)</string>
+    <string name="launcher_low_graphics_hint">Облегчённая графика упрощает тени и фильтрацию текстур, отключает динамические отражения и радиальное размытие. Качество теней «Авто» использует настройку игры или 512 × 512 при облегчённой графике. Уменьшенное разрешение вывода влияет на чёткость интерфейса. Нажмите «Играть» для сохранения. Изменения вступят в силу после полного перезапуска игры.</string>
     <string name="launcher_import_driver">Импорт .so / .zip</string>
     <string name="launcher_driver_folder">Папка драйверов</string>
     <string name="launcher_controls">Управление</string>
@@ -42,7 +46,7 @@
     <string name="launcher_precise_limiter">Точный лимитер кадров (эксперимент)</string>
     <string name="launcher_open_logs">Открыть логи</string>
     <string name="launcher_recommended">Рекомендуемые настройки</string>
-    <string name="launcher_recommended_all">Все переключатели выше — в рекомендуемом положении.</string>
+    <string name="launcher_recommended_all">Перечисленные настройки имеют рекомендуемые значения.</string>
     <string name="launcher_recommended_changed">Отличаются от рекомендуемых: %1$s.</string>
     <string name="launcher_quick_files">Файлы</string>
     <string name="launcher_exit">Выход</string>
@@ -63,6 +67,15 @@
 
     <string-array name="driver_labels">
         <item>Авто (рекомендуется)</item><item>Системный</item><item>Встроенный Turnip</item><item>Adreno 710 (Vauzi)</item><item>A725 Performance (экспериментальный; sysmem+nobin)</item><item>Adreno 8xx (Snapdragon 8 Elite; sysmem+nobin)</item><item>Импортированный</item>
+    </string-array>
+    <string-array name="shadow_map_resolution_labels">
+        <item>Авто</item>
+        <item>256 × 256</item>
+        <item>512 × 512</item>
+        <item>1024 × 1024</item>
+        <item>2048 × 2048</item>
+        <item>4096 × 4096</item>
+        <item>8192 × 8192</item>
     </string-array>
     <string-array name="render_mode_labels">
         <item>Авто (рекомендуется)</item><item>GMEM</item><item>Sysmem</item>

@@ -120,6 +120,10 @@ public final class MarathonLauncherActivity extends Activity {
     private Spinner renderSpinner;
     private CompoundButton lowGraphicsSwitch;
     private CompoundButton reducedOutputSwitch;
+    private Spinner shadowResolutionSpinner;
+    private CompoundButton limitObjectShadowsSwitch;
+    private CompoundButton shortShadowDistanceSwitch;
+    private CompoundButton disableBloomSwitch;
     private Spinner touchPolicySpinner;
     private Spinner touchCameraSpinner;
     private CompoundButton skipIntro;
@@ -354,8 +358,27 @@ public final class MarathonLauncherActivity extends Activity {
             button(R.string.launcher_driver_folder, view -> openFiles("transfer")));
         lowGraphicsSwitch = switchRow(section, R.string.launcher_low_graphics);
         reducedOutputSwitch = switchRow(section, R.string.launcher_reduced_output);
+        shadowResolutionSpinner = spinner(R.array.shadow_map_resolution_labels);
+        settingRow(section, R.string.launcher_shadow_map_resolution, shadowResolutionSpinner);
+        shadowResolutionSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                updateRecommendedState();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                updateRecommendedState();
+            }
+        });
+        limitObjectShadowsSwitch = switchRow(section, R.string.launcher_limit_object_shadows);
+        shortShadowDistanceSwitch = switchRow(section, R.string.launcher_short_shadow_distance);
+        disableBloomSwitch = switchRow(section, R.string.launcher_disable_bloom);
         recommend(lowGraphicsSwitch, false);
         recommend(reducedOutputSwitch, false);
+        recommend(limitObjectShadowsSwitch, false);
+        recommend(shortShadowDistanceSwitch, false);
+        recommend(disableBloomSwitch, false);
         TextView graphicsHint = statusText();
         graphicsHint.setText(R.string.launcher_low_graphics_hint);
         graphicsHint.setPadding(0, dp(8), 0, dp(8));
@@ -410,6 +433,7 @@ public final class MarathonLauncherActivity extends Activity {
     }
 
     private void applyRecommended() {
+        shadowResolutionSpinner.setSelection(0);
         for (Map.Entry<CompoundButton, Boolean> entry : recommendedSwitches.entrySet()) {
             entry.getKey().setChecked(entry.getValue());
         }
@@ -419,6 +443,9 @@ public final class MarathonLauncherActivity extends Activity {
     private void updateRecommendedState() {
         if (recommendedStatus == null) return;
         StringBuilder changed = new StringBuilder();
+        if (shadowResolutionSpinner.getSelectedItemPosition() > 0) {
+            changed.append(getString(R.string.launcher_shadow_map_resolution));
+        }
         for (Map.Entry<CompoundButton, Boolean> entry : recommendedSwitches.entrySet()) {
             CompoundButton toggle = entry.getKey();
             boolean differs = toggle.isChecked() != entry.getValue();
@@ -662,6 +689,11 @@ public final class MarathonLauncherActivity extends Activity {
     private static final String MARKER_OVERLAY = "overlay.enabled";
     private static final String MARKER_LOW_GRAPHICS = "low_graphics.enabled";
     private static final String MARKER_REDUCED_OUTPUT = "reduced_output.enabled";
+    private static final String SHADOW_MAP_RESOLUTION = "shadow_map_resolution.txt";
+    private static final String[] SHADOW_MAP_RESOLUTION_VALUES = {"", "256", "512", "1024", "2048", "4096", "8192"};
+    private static final String MARKER_LIMIT_OBJECT_SHADOWS = "limit_object_shadow_cascades.enabled";
+    private static final String MARKER_SHORT_SHADOW_DISTANCE = "short_shadow_distance.enabled";
+    private static final String MARKER_NO_BLOOM = "bloom.disabled";
     private static final String MARKER_PERF_LOG = "perf_capture.enabled";
     private static final String MARKER_PROFILER = "perf_sampling.enabled";
     private static final String MARKER_NO_PIPELINE_CACHE = "pipeline_cache.disabled";
@@ -692,6 +724,19 @@ public final class MarathonLauncherActivity extends Activity {
         new File(root, MARKER_OLD_TEXTURE_CACHE).delete();
         lowGraphicsSwitch.setChecked(new File(root, MARKER_LOW_GRAPHICS).isFile());
         reducedOutputSwitch.setChecked(new File(root, MARKER_REDUCED_OUTPUT).isFile());
+        shadowResolutionSpinner.setSelection(0);
+        File shadowResolution = new File(root, SHADOW_MAP_RESOLUTION);
+        if (shadowResolution.isFile() && shadowResolution.length() <= 32) {
+            try {
+                String size = new String(Files.readAllBytes(shadowResolution.toPath()), StandardCharsets.UTF_8);
+                select(shadowResolutionSpinner, Integer.toString(Integer.parseInt(size.trim())), SHADOW_MAP_RESOLUTION_VALUES);
+            } catch (IOException | NumberFormatException ignored) {
+                // Missing or invalid override falls back to the game setting.
+            }
+        }
+        limitObjectShadowsSwitch.setChecked(new File(root, MARKER_LIMIT_OBJECT_SHADOWS).isFile());
+        shortShadowDistanceSwitch.setChecked(new File(root, MARKER_SHORT_SHADOW_DISTANCE).isFile());
+        disableBloomSwitch.setChecked(new File(root, MARKER_NO_BLOOM).isFile());
         overlaySwitch.setChecked(new File(root, MARKER_OVERLAY).isFile());
         perfLogSwitch.setChecked(new File(root, MARKER_PERF_LOG).isFile());
         profilerSwitch.setChecked(new File(root, MARKER_PROFILER).isFile());
@@ -709,6 +754,12 @@ public final class MarathonLauncherActivity extends Activity {
     private void saveGameSwitches(File root) throws IOException {
         setMarker(new File(root, MARKER_LOW_GRAPHICS), lowGraphicsSwitch.isChecked(), "");
         setMarker(new File(root, MARKER_REDUCED_OUTPUT), reducedOutputSwitch.isChecked(), "");
+        int shadowResolution = Math.max(0, shadowResolutionSpinner.getSelectedItemPosition());
+        setMarker(new File(root, SHADOW_MAP_RESOLUTION), shadowResolution > 0,
+            SHADOW_MAP_RESOLUTION_VALUES[shadowResolution] + "\n");
+        setMarker(new File(root, MARKER_LIMIT_OBJECT_SHADOWS), limitObjectShadowsSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_SHORT_SHADOW_DISTANCE), shortShadowDistanceSwitch.isChecked(), "");
+        setMarker(new File(root, MARKER_NO_BLOOM), disableBloomSwitch.isChecked(), "");
         setMarker(new File(root, MARKER_OVERLAY), overlaySwitch.isChecked(), "");
         setMarker(new File(root, MARKER_PERF_LOG), perfLogSwitch.isChecked(), "");
         setMarker(new File(root, MARKER_PROFILER), profilerSwitch.isChecked(), "");

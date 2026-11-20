@@ -7,6 +7,7 @@
 #include <app.h>
 #ifdef __ANDROID__
 #include <os/android/storage_android.h>
+#include <fstream>
 #endif
 
 std::vector<IConfigDef*> g_configDefinitions;
@@ -965,18 +966,68 @@ void Config::Save()
     }
 }
 
-bool Config::IsLowGraphicsEnabled()
+static bool HasGraphicsMarker(const char* name)
 {
 #ifdef __ANDROID__
-    static const bool enabled = []
-    {
-        std::error_code error;
-        return std::filesystem::is_regular_file(os::android::GetDataRoot() / "low_graphics.enabled", error);
-    }();
-    return enabled;
+    std::error_code error;
+    return std::filesystem::is_regular_file(os::android::GetDataRoot() / name, error);
 #else
+    (void)name;
     return false;
 #endif
+}
+
+bool Config::IsLowGraphicsEnabled()
+{
+    static const bool enabled = HasGraphicsMarker("low_graphics.enabled");
+    return enabled;
+}
+
+uint32_t Config::GetShadowMapResolutionOverride()
+{
+#ifdef __ANDROID__
+    static const uint32_t resolution = []
+    {
+        std::ifstream input(os::android::GetDataRoot() / "shadow_map_resolution.txt");
+        uint32_t size = 0;
+        if (!(input >> size) || (input >> std::ws).peek() != std::char_traits<char>::eof())
+            return 0u;
+
+        switch (size)
+        {
+        case 256:
+        case 512:
+        case 1024:
+        case 2048:
+        case 4096:
+        case 8192:
+            return size;
+        default:
+            return 0u;
+        }
+    }();
+    return resolution;
+#else
+    return 0;
+#endif
+}
+
+bool Config::LimitObjectShadowCascades()
+{
+    static const bool enabled = HasGraphicsMarker("limit_object_shadow_cascades.enabled");
+    return enabled;
+}
+
+bool Config::UseShortShadowDistance()
+{
+    static const bool enabled = HasGraphicsMarker("short_shadow_distance.enabled");
+    return enabled;
+}
+
+bool Config::IsBloomDisabled()
+{
+    static const bool disabled = HasGraphicsMarker("bloom.disabled");
+    return disabled;
 }
 
 EShadowResolution Config::GetEffectiveShadowResolution()

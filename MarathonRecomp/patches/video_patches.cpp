@@ -4,6 +4,8 @@
 #include <os/logger.h>
 #include <patches/aspect_ratio_patches.h>
 #include <user/config.h>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <string_view>
 
@@ -74,15 +76,19 @@ float ReflectionScaleFactor(EReflectionResolution ref) {
 }
 
 #ifdef __ANDROID__
-// Lua 5.0's binary chunk loader returns a Proto before the root chunk executes.
-PPC_FUNC_IMPL(__imp__sub_825E3D80);
-PPC_FUNC(sub_825E3D80)
+static bool LuaStringEquals(uint8_t* base, uint32_t value, std::string_view expected)
 {
-    __imp__sub_825E3D80(ctx, base);
+    constexpr uint32_t luaStringType = 4;
+    if (PPC_LOAD_U32(value) != luaStringType)
+        return false;
 
-    const uint32_t prototype = ctx.r3.u32;
-    if (!prototype || Config::GetEffectiveReflectionResolution() != EReflectionResolution::Off)
-        return;
+    const uint32_t string = PPC_LOAD_U32(value + 8);
+    return string && PPC_LOAD_U32(string + 12) == expected.size() &&
+        std::memcmp(base + string + 16, expected.data(), expected.size()) == 0;
+}
+
+static void DisableRenderReflection(uint8_t* base, uint32_t prototype)
+{
 
     // Match the stock render_reflection.lub root. Its first two instructions
     // set EnableReflection = true, followed by the two function definitions.
@@ -99,20 +105,9 @@ PPC_FUNC(sub_825E3D80)
         PPC_LOAD_U32(code) != loadTrueIntoR0 || PPC_LOAD_U32(code + 4) != setFirstGlobalFromR0)
         return;
 
-    const auto hasStringConstant = [base](uint32_t value, std::string_view expected)
-    {
-        constexpr uint32_t luaStringType = 4;
-        if (PPC_LOAD_U32(value) != luaStringType)
-            return false;
-
-        const uint32_t string = PPC_LOAD_U32(value + 8);
-        return string && PPC_LOAD_U32(string + 12) == expected.size() &&
-            std::memcmp(base + string + 16, expected.data(), expected.size()) == 0;
-    };
-
-    if (hasStringConstant(constants, "EnableReflection") &&
-        hasStringConstant(constants + luaValueSize, "CreateReflectionTexture") &&
-        hasStringConstant(constants + 2 * luaValueSize, "RenderReflection"))
+    if (LuaStringEquals(base, constants, "EnableReflection") &&
+        LuaStringEquals(base, constants + luaValueSize, "CreateReflectionTexture") &&
+        LuaStringEquals(base, constants + 2 * luaValueSize, "RenderReflection"))
     {
         // Use the same branch as cutscenes: it keeps the neutral texture and
         // its bindings while skipping the reflected geometry and sky.
@@ -120,7 +115,150 @@ PPC_FUNC(sub_825E3D80)
         LOG("[graphics] Real-time reflections disabled in render_reflection.");
     }
 }
+
+static void DisableRenderBloom(uint8_t* base, uint32_t prototype)
+{
+    struct BloomCalls
+    {
+        uint32_t instructionCount;
+        uint32_t constantCount;
+        uint32_t firstInstruction;
+        uint32_t makeBloom;
+        uint32_t applyBloom;
+        std::array<uint32_t, 6> instructions;
+    };
+
+    // Build() in render_gamemode and render_previewmode: two complete calls,
+    // each consisting of GETGLOBAL, MOVE (script argument), and CALL (no result).
+    constexpr BloomCalls scripts[] = {
+        { 155, 45, 67, 23, 24, { 0x30005C5, 0x4000000, 0x3010059, 0x3000605, 0x4000000, 0x3010059 } },
+        { 102, 32, 72, 25, 26, { 0x1000645, 0x2000000, 0x1010059, 0x1000685, 0x2000000, 0x1010059 } },
+    };
+
+    // Each stock Build() is a direct child of its corresponding root chunk.
+    // The guest loader sub_825E3718 stores the child Proto array and count here.
+    constexpr uint32_t childPrototypesOffset = 0x10;
+    constexpr uint32_t childPrototypeCountOffset = 0x34;
+    const uint32_t children = PPC_LOAD_U32(prototype + childPrototypesOffset);
+    const uint32_t childCount = PPC_LOAD_U32(prototype + childPrototypeCountOffset);
+    if (!children || childCount > 8)
+        return;
+
+    for (uint32_t i = 0; i < childCount; ++i)
+    {
+        const uint32_t build = PPC_LOAD_U32(children + 4 * i);
+        if (!build)
+            continue;
+
+        for (const auto& script : scripts)
+        {
+            if (PPC_LOAD_U32(build + 44) != script.instructionCount ||
+                PPC_LOAD_U32(build + 40) != script.constantCount)
+                continue;
+
+            constexpr uint32_t luaValueSize = 16;
+            const uint32_t constants = PPC_LOAD_U32(build + 8);
+            const uint32_t code = PPC_LOAD_U32(build + 12);
+            if (!constants || !code ||
+                !LuaStringEquals(base, constants + luaValueSize * script.makeBloom, "MakeBloom") ||
+                !LuaStringEquals(base, constants + luaValueSize * script.applyBloom, "ApplyBloom"))
+                continue;
+
+            const uint32_t calls = code + 4 * script.firstInstruction;
+            bool matches = true;
+            for (uint32_t index = 0; index < script.instructions.size(); ++index)
+                matches &= PPC_LOAD_U32(calls + 4 * index) == script.instructions[index];
+            if (!matches)
+                continue;
+
+            // Lua 5.0 JMP sBx=5: advance past the remaining five instructions.
+            // Capture and subsequent postprocessing stay in the render graph.
+            constexpr uint32_t skipBloomCalls = ((131071 + 5) << 6) | 20;
+            PPC_STORE_U32(calls, skipBloomCalls);
+            LOG("[graphics] Bloom disabled in render script.");
+        }
+    }
+}
+
+// Lua 5.0's binary chunk loader returns a Proto before the root chunk executes.
+PPC_FUNC_IMPL(__imp__sub_825E3D80);
+PPC_FUNC(sub_825E3D80)
+{
+    __imp__sub_825E3D80(ctx, base);
+
+    const uint32_t prototype = ctx.r3.u32;
+    if (!prototype)
+        return;
+
+    if (Config::GetEffectiveReflectionResolution() == EReflectionResolution::Off)
+        DisableRenderReflection(base, prototype);
+    if (Config::IsBloomDisabled())
+        DisableRenderBloom(base, prototype);
+}
 #endif
+
+void ConfigureAndroidShadowScript(PPCRegister& stack)
+{
+#ifdef __ANDROID__
+    const uint32_t size = Config::GetShadowMapResolutionOverride();
+    const bool limitObjects = Config::LimitObjectShadowCascades();
+    if (!size && !limitObjects)
+        return;
+
+    // Same LuaSystem stack slot as upstream SetRenderConfig in ReadBlock.
+    const auto slot = static_cast<const xpointer<void>*>(g_memory.Translate(stack.u32 + 0x54));
+    auto* lua = slot->get();
+    if (!lua)
+        return;
+
+    // LuaNode's vtable slots used by the upstream render configuration hook.
+    const auto tableAddress = *static_cast<const be<uint32_t>*>(lua);
+    const auto* vtable = static_cast<const be<uint32_t>*>(g_memory.Translate(tableAddress));
+    constexpr uint32_t isNumberSlot = 0x30 / 4;
+    constexpr uint32_t getRealSlot = 0x3C / 4;
+    constexpr uint32_t setIntegerSlot = 0x38 / 4;
+    const auto setNumber = [lua, vtable](const char* key, int value, bool clamp)
+    {
+        const guest_stack_var<stdx::string> name(key);
+        if (!GuestToHostFunction<bool>(vtable[isNumberSlot].get(), lua, name->c_str()))
+            return;
+        if (clamp && GuestToHostFunction<double>(vtable[getRealSlot].get(), lua, name->c_str()) <= value)
+            return;
+
+        GuestToHostFunction<void>(vtable[setIntegerSlot].get(), lua, name->c_str(), value);
+        LOGF("[graphics] Render script {} = {}.", key, value);
+    };
+
+    if (size)
+        setNumber("CSMTextureSize", static_cast<int>(size), false);
+    if (limitObjects)
+        setNumber("GenerateCSMObjects", 2, true);
+#else
+    (void)stack;
+#endif
+}
+
+void ApplyAndroidShadowDistance(PPCRegister& shadowExtent)
+{
+#ifdef __ANDROID__
+    if (!Config::UseShortShadowDistance() || !shadowExtent.u32)
+        return;
+
+    // WorldIntersectionCSM passes a fresh Vector2 built for the light camera.
+    // Scale its orthographic footprint, keeping the game's cascade count and light depth range.
+    auto* extent = static_cast<be<float>*>(g_memory.Translate(shadowExtent.u32));
+    const float width = extent[0];
+    const float height = extent[1];
+    if (std::isfinite(width) && width > 0.0f && std::isfinite(height) && height > 0.0f)
+    {
+        constexpr float shortExtentScale = 0.65f;
+        extent[0] = width * shortExtentScale;
+        extent[1] = height * shortExtentScale;
+    }
+#else
+    (void)shadowExtent;
+#endif
+}
 
 // CreateTexture
 PPC_FUNC_IMPL(__imp__sub_82619D00);
@@ -239,9 +377,19 @@ PPC_FUNC(sub_82619FF0)
 
     if (*pName == "csm")
     {
-        const float scale = ShadowScaleFactor(Config::GetEffectiveShadowResolution());
-        ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) * scale);
-        ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) * scale);
+        if (const uint32_t size = Config::GetShadowMapResolutionOverride())
+        {
+            // CSMTextureSize also feeds the Lua viewport/scissor. Use the requested
+            // size directly to avoid applying the legacy multiplier a second time.
+            ctx.r5.u32 = size;
+            ctx.r6.u32 = size;
+        }
+        else
+        {
+            const float scale = ShadowScaleFactor(Config::GetEffectiveShadowResolution());
+            ctx.r5.u32 = static_cast<int>(static_cast<float>(ctx.r5.u32) * scale);
+            ctx.r6.u32 = static_cast<int>(static_cast<float>(ctx.r6.u32) * scale);
+        }
     }
 
     g_surfaceCreationName = pName->c_str();
@@ -259,7 +407,7 @@ void GetRenderWorldFBO(PPCRegister& name)
 
 void FurtherObjectShadows(PPCRegister& scope)
 {
-    if (g_renderWorldFBO != "shadowmap" || Config::IsLowGraphicsEnabled())
+    if (g_renderWorldFBO != "shadowmap" || Config::IsLowGraphicsEnabled() || Config::LimitObjectShadowCascades())
         return;
 
     scope.u32 = 1;

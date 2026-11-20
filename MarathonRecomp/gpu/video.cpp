@@ -3367,6 +3367,9 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         Config::ReflectionResolution.GetValueLocalised(ELanguage::English, Config::GetEffectiveReflectionResolution()),
         Config::RadialBlur.GetValueLocalised(ELanguage::English, Config::GetEffectiveRadialBlur()),
         Config::GetEffectiveAnisotropicFiltering());
+    LOGF("[graphics] CSM size override: {} (0 = automatic), two object shadow cascades: {}, short shadow distance: {}, bloom disabled: {}.",
+        Config::GetShadowMapResolutionOverride(), Config::LimitObjectShadowCascades(),
+        Config::UseShortShadowDistance(), Config::IsBloomDisabled());
 #endif
 
     g_swapChain = g_queue->createSwapChain(swapChainDesc);

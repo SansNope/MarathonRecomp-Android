@@ -179,6 +179,18 @@ name = "FurtherObjectShadows"
 address = 0x8260D7E0
 registers = ["r26"]
 
+# RenderAction::ReadBlock after the stage's Lua setup and before building render actions.
+[[midasm_hook]]
+name = "ConfigureAndroidShadowScript"
+address = 0x8260E07C
+registers = ["r1"]
+
+# WorldIntersectionCSM: set the light camera's orthographic extent.
+[[midasm_hook]]
+name = "ApplyAndroidShadowDistance"
+address = 0x826146D4
+registers = ["r4"]
+
 [[midasm_hook]]
 name = "PlayerDebugMode_RegisterLuaSetup"
 address = 0x82195AD0
@@ -198,8 +210,8 @@ jump_address_on_true = 0x82653840
 
 [[midasm_hook]]
 name = "DisableKingdomValleyMist"
-address = 0x82311E50
-jump_address_on_true = 0x82311E54
+address = 0x82311E3C
+jump_address_on_true = 0x82311EB8
 
 [[midasm_hook]]
 name = "PostureControl_RotationSpeedFix"
@@ -312,6 +324,32 @@ jump_address_on_true = 0x821A2988
 name = "ControllableSpinkick"
 address = 0x821A7A04
 jump_address_on_true = 0x821A7A08
+
+[[midasm_hook]]
+name = "DisableSandJump"
+address = 0x8220924C
+jump_address_on_true = 0x82209258
+
+[[midasm_hook]]
+name = "DisableMidairSpinningClaw"
+address = 0x821ABFD8
+jump_address_on_true = 0x821AC00C
+
+[[midasm_hook]]
+name = "ControllableHammerAttack"
+address = 0x821AB6AC
+jump_address_on_true = 0x821AB6B0
+
+[[midasm_hook]]
+name = "ControllableHammerAttack"
+address = 0x821AB6B4
+jump_address_on_true = 0x821AB6B8
+
+[[midasm_hook]]
+name = "UnlockSnowboardControl"
+address = 0x82215000
+registers = ["r3"]
+jump_address_on_true = 0x82215004
 
 # Skip SPAABBTree initialisation for point light search
 [[midasm_hook]]

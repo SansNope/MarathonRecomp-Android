@@ -12,28 +12,30 @@ void UnlockAchievement(PPCRegister& id)
 
 void SetLifeBarAnimation(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5, PPCRegister& r31)
 {
-    static bool s_initContextualHUD{};
     static char* s_lifeBarSceneName{};
+    static bool s_contextualColoursApplied{};
 
-    if (!s_initContextualHUD)
+    if (!s_lifeBarSceneName)
     {
         constexpr const char* LIFE_BAR_ANIME = "life_bar_anime";
-
         s_lifeBarSceneName = (char*)g_userHeap.Alloc(strlen(LIFE_BAR_ANIME) + 1);
-
         strcpy(s_lifeBarSceneName, LIFE_BAR_ANIME);
+    }
 
-        if (Config::RestoreContextualHUDColours)
-        {
-            *Sonicteam::Globals::ms_apMainDisplayColours[Sonicteam::Character_Shadow] = 1.0f;
-            *Sonicteam::Globals::ms_apMainDisplayColours[Sonicteam::Character_Omega] = 1.0f;
-            *Sonicteam::Globals::ms_apMainDisplayColours[Sonicteam::Character_Rouge] = 1.0f;
-            *Sonicteam::Globals::ms_apMainDisplayColours[Sonicteam::Character_Silver] = 2.0f;
-            *Sonicteam::Globals::ms_apMainDisplayColours[Sonicteam::Character_Amy] = 2.0f;
-            *Sonicteam::Globals::ms_apMainDisplayColours[Sonicteam::Character_Blaze] = 2.0f;
-        }
-
-        s_initContextualHUD = true;
+    const bool useContextualColours = Config::RestoreContextualHUDColours;
+    if (s_contextualColoursApplied != useContextualColours)
+    {
+        // Update the palette when the HUD is rebuilt after a setting change.
+        const float shadowColour = useContextualColours ? 1.0f : 0.0f;
+        const float silverColour = useContextualColours ? 2.0f : 0.0f;
+        auto& colours = Sonicteam::Globals::ms_apMainDisplayColours;
+        *colours[Sonicteam::Character_Shadow] = shadowColour;
+        *colours[Sonicteam::Character_Omega] = shadowColour;
+        *colours[Sonicteam::Character_Rouge] = shadowColour;
+        *colours[Sonicteam::Character_Silver] = silverColour;
+        *colours[Sonicteam::Character_Amy] = silverColour;
+        *colours[Sonicteam::Character_Blaze] = silverColour;
+        s_contextualColoursApplied = useContextualColours;
     }
 
     auto base = g_memory.base;
@@ -49,7 +51,7 @@ void SetLifeBarAnimation(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5, PPCR
         r4.u32 = g_memory.MapVirtual(s_lifeBarSceneName);
     }
 
-    if (!Config::RestoreContextualHUDColours)
+    if (!useContextualColours)
         return;
 
     auto pHUDMainDisplay = (Sonicteam::HUDMainDisplay*)g_memory.Translate(r31.u32);

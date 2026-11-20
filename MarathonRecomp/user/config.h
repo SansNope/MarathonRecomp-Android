@@ -316,6 +316,10 @@ public:
 
     static bool IsLowGraphicsEnabled();
     static EShadowResolution GetEffectiveShadowResolution();
+    static uint32_t GetShadowMapResolutionOverride();
+    static bool LimitObjectShadowCascades();
+    static bool UseShortShadowDistance();
+    static bool IsBloomDisabled();
     static EReflectionResolution GetEffectiveReflectionResolution();
     static ERadialBlur GetEffectiveRadialBlur();
     static uint32_t GetEffectiveAnisotropicFiltering();

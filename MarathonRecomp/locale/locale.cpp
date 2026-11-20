@@ -295,12 +295,12 @@ std::unordered_map<std::string_view, std::unordered_map<ELanguage, std::string>>
     {
         "Options_Desc_LowGraphics",
         {
-            { ELanguage::English,  "Controlled by Low graphics in the launcher." },
-            { ELanguage::Japanese, "ランチャーの軽量グラフィック設定で変更できます。" },
-            { ELanguage::German,   "Diese Einstellung wird im Launcher durch die niedrige Grafikqualität festgelegt." },
-            { ELanguage::French,   "Cette option est gérée par le mode graphique allégé du lanceur." },
-            { ELanguage::Spanish,  "Esta opción se controla con el modo gráfico reducido del lanzador." },
-            { ELanguage::Italian,  "Questa opzione è gestita dalla modalità grafica ridotta nel launcher." }
+            { ELanguage::English,  "Controlled by the graphics settings in the launcher." },
+            { ELanguage::Japanese, "ランチャーのグラフィック設定で変更できます。" },
+            { ELanguage::German,   "Diese Einstellung wird in den Grafikeinstellungen des Launchers festgelegt." },
+            { ELanguage::French,   "Cette option est gérée dans les paramètres graphiques du lanceur." },
+            { ELanguage::Spanish,  "Esta opción se controla desde los ajustes gráficos del lanzador." },
+            { ELanguage::Italian,  "Questa opzione è gestita nelle impostazioni grafiche del launcher." }
         }
     },
     {

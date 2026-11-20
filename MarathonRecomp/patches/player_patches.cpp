@@ -230,6 +230,11 @@ bool ControllableBoundAttack2(PPCCRRegister& cmp)
     return cmp.eq;
 }
 
+bool ControllableHammerAttack()
+{
+    return Config::ControllableHammerAttack;
+}
+
 bool ControllableHomingRecovery()
 {
     return Config::ControllableHomingRecovery;
@@ -305,6 +310,11 @@ bool DisableClimbFromJump()
     return Config::DisableClimbFromJump;
 }
 
+bool DisableMidairSpinningClaw()
+{
+    return Config::DisableMidairSpinningClaw;
+}
+
 bool DisablePushState()
 {
     return Config::DisablePushState;
@@ -326,9 +336,24 @@ void IncreasedChaosBlastRange(PPCRegister& f0)
     f0.f64 = 2500.0;
 }
 
+bool DisableSandJump()
+{
+    return Config::DisableSandJump;
+}
+
 bool MidairControlForMachSpeed()
 {
     return Config::MidairControlForMachSpeed;
+}
+
+bool UnlockSnowboardControl(PPCRegister& r3)
+{
+    if (!Config::UnlockSnowboardControl)
+        return false;
+
+    r3.u32 = 1;
+
+    return true;
 }
 
 bool MidairControlForSnowboards()

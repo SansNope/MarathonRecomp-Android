@@ -248,6 +248,126 @@ CONFIG_DEFINE_LOCALE(ControllableTornadoAttack)
     { ELanguage::Italian,  { "Attacco tornado controllabile", "Muovi Sonic durante il suo attacco tornado. Entra di nuovo nel livello per aggiornare l'audio." } }
 };
 
+CONFIG_DEFINE_LOCALE(ControllableBoundAttack)
+{
+    { ELanguage::English,  { "Steer During Bounce Attack", "Lets Sonic steer in the air during a Bounce Attack." } },
+    { ELanguage::Japanese, { "バウンドアタック中の操作", "バウンドアタック中にソニックの進行方向を変えられます" } },
+    { ELanguage::German,   { "Steuerung beim Aufprallangriff", "Steuere Sonic während des Aufprallangriffs in der Luft." } },
+    { ELanguage::French,   { "Contrôle pendant l'attaque rebond", "Dirige Sonic en l'air pendant son attaque rebond." } },
+    { ELanguage::Spanish,  { "Control durante el ataque de rebote", "Controla a Sonic en el aire durante su ataque de rebote." } },
+    { ELanguage::Italian,  { "Controllo durante l'attacco rimbalzante", "Muovi Sonic in aria durante il suo attacco rimbalzante." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllableSpinkick)
+{
+    { ELanguage::English,  { "Steer During Spin Kick", "Lets you change direction during a Spin Kick." } },
+    { ELanguage::Japanese, { "スピンキック中の操作", "スピンキック中に進行方向を変えられます" } },
+    { ELanguage::German,   { "Steuerung beim Drehkick", "Ändere während des Drehkicks die Bewegungsrichtung." } },
+    { ELanguage::French,   { "Contrôle pendant le coup de pied tournant", "Change de direction pendant le coup de pied tournant." } },
+    { ELanguage::Spanish,  { "Control durante la patada giratoria", "Permite cambiar de dirección durante la patada giratoria." } },
+    { ELanguage::Italian,  { "Controllo durante il calcio rotante", "Consente di cambiare direzione durante il calcio rotante." } }
+};
+
+CONFIG_DEFINE_LOCALE(ControllableHammerAttack)
+{
+    { ELanguage::English,  { "Steer During Hammer Attack", "Lets Amy move while swinging her hammer." } },
+    { ELanguage::Japanese, { "ハンマー攻撃中の操作", "エミーがハンマーを振っている間も移動できます" } },
+    { ELanguage::German,   { "Steuerung beim Hammerangriff", "Bewege Amy, während sie ihren Hammer schwingt." } },
+    { ELanguage::French,   { "Contrôle pendant l'attaque au marteau", "Déplace Amy pendant qu'elle donne un coup de marteau." } },
+    { ELanguage::Spanish,  { "Control durante el ataque con martillo", "Permite mover a Amy mientras golpea con el martillo." } },
+    { ELanguage::Italian,  { "Controllo durante l'attacco col martello", "Consente di muovere Amy mentre usa il martello." } }
+};
+
+CONFIG_DEFINE_LOCALE(DisableMidairSpinningClaw)
+{
+    { ELanguage::English,  { "Disable Airborne Spinning Claw", "Disables Blaze's Spinning Claw in midair so it cannot interrupt a Homing Attack." } },
+    { ELanguage::Japanese, { "空中のスピニングクローを無効化", "ブレイズの空中スピニングクローを無効にして、ホーミングアタックの中断を防ぎます" } },
+    { ELanguage::German,   { "Drehklaue in der Luft deaktivieren", "Deaktiviert Blazes Drehklaue in der Luft, damit sie den Zielangriff nicht abbricht." } },
+    { ELanguage::French,   { "Désactiver la griffe tournante en l'air", "Empêche la griffe tournante de Blaze en l'air d'interrompre une attaque téléguidée." } },
+    { ELanguage::Spanish,  { "Desactivar la garra giratoria en el aire", "Desactiva la garra giratoria aérea de Blaze para que no interrumpa el ataque teledirigido." } },
+    { ELanguage::Italian,  { "Disattiva l'artiglio rotante in aria", "Disattiva l'artiglio rotante aereo di Blaze per evitare che interrompa un attacco a ricerca." } }
+};
+
+CONFIG_DEFINE_LOCALE(DisableSandJump)
+{
+    { ELanguage::English,  { "Full Jump Height in Sand and Water", "Uses normal jump height when jumping from sand or water." } },
+    { ELanguage::Japanese, { "砂や水の中でも通常のジャンプ", "砂や水からジャンプするときも通常の高さまで跳べます" } },
+    { ELanguage::German,   { "Normale Sprunghöhe in Sand und Wasser", "Behält beim Absprung aus Sand oder Wasser die normale Sprunghöhe bei." } },
+    { ELanguage::French,   { "Hauteur de saut normale dans le sable et l'eau", "Conserve la hauteur de saut normale en sautant depuis le sable ou l'eau." } },
+    { ELanguage::Spanish,  { "Altura de salto normal en arena y agua", "Mantiene la altura normal al saltar desde la arena o el agua." } },
+    { ELanguage::Italian,  { "Altezza normale del salto in sabbia e acqua", "Mantiene l'altezza normale quando salti dalla sabbia o dall'acqua." } }
+};
+
+CONFIG_DEFINE_LOCALE(UnlockSnowboardControl)
+{
+    { ELanguage::English,  { "Full Snowboard Steering", "Lets you steer the snowboard in any direction without charging a jump." } },
+    { ELanguage::Japanese, { "スノーボードの全方向操作", "ジャンプのためをせずに、スノーボードを全方向に操作できます" } },
+    { ELanguage::German,   { "Freie Snowboard-Steuerung", "Lenke das Snowboard in jede Richtung, ohne einen Sprung aufzuladen." } },
+    { ELanguage::French,   { "Contrôle complet du snowboard", "Dirige le snowboard dans toutes les directions sans charger un saut." } },
+    { ELanguage::Spanish,  { "Control completo de la tabla de nieve", "Permite dirigir la tabla en cualquier dirección sin cargar un salto." } },
+    { ELanguage::Italian,  { "Controllo completo dello snowboard", "Consente di sterzare in ogni direzione senza caricare un salto." } }
+};
+
+CONFIG_DEFINE_LOCALE(InfiniteLives)
+{
+    { ELanguage::English,  { "Keep Lives on Death", "Prevents a normal death from taking a life." } },
+    { ELanguage::Japanese, { "ミスしても残機を維持", "通常のミスで残機が減らなくなります" } },
+    { ELanguage::German,   { "Leben beim Tod behalten", "Bei einem normalen Tod wird kein Leben abgezogen." } },
+    { ELanguage::French,   { "Conserver ses vies", "Empêche la perte d'une vie lors d'une mort normale." } },
+    { ELanguage::Spanish,  { "Conservar vidas al morir", "Evita perder una vida al morir de forma normal." } },
+    { ELanguage::Italian,  { "Mantieni le vite alla morte", "Evita di perdere una vita in caso di morte normale." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestorePauseMissionText)
+{
+    { ELanguage::English,  { "Show Mission Text on Pause", "Shows the mission objective in the pause menu when one is available." } },
+    { ELanguage::Japanese, { "ポーズ中にミッション目標を表示", "ミッション目標がある場合にポーズメニューに表示します" } },
+    { ELanguage::German,   { "Missionsziel im Pausenmenü", "Zeigt das Missionsziel im Pausenmenü an, sofern eines vorhanden ist." } },
+    { ELanguage::French,   { "Objectif de mission en pause", "Affiche l'objectif de mission dans le menu de pause s'il est disponible." } },
+    { ELanguage::Spanish,  { "Objetivo de misión en pausa", "Muestra el objetivo de misión en el menú de pausa cuando está disponible." } },
+    { ELanguage::Italian,  { "Obiettivo missione in pausa", "Mostra l'obiettivo della missione nel menu di pausa quando disponibile." } }
+};
+
+CONFIG_DEFINE_LOCALE(DisableTitleInputDelay)
+{
+    { ELanguage::English,  { "Faster Title Screen Input", "Lets the title screen accept input sooner." } },
+    { ELanguage::Japanese, { "タイトル画面の入力待ちを短縮", "タイトル画面でボタン入力を早く受け付けます" } },
+    { ELanguage::German,   { "Schnellere Eingabe im Titelbildschirm", "Der Titelbildschirm reagiert früher auf Eingaben." } },
+    { ELanguage::French,   { "Écran titre plus réactif", "L'écran titre accepte les commandes plus rapidement." } },
+    { ELanguage::Spanish,  { "Pantalla de título más rápida", "La pantalla de título acepta las pulsaciones antes." } },
+    { ELanguage::Italian,  { "Schermata del titolo più reattiva", "La schermata del titolo accetta prima i comandi." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreChainJumpFlips)
+{
+    { ELanguage::English,  { "Restore Chain Jump Flips", "Restores the flipping animations between chain jumps." } },
+    { ELanguage::Japanese, { "チェーンジャンプ中の宙返り", "チェーンジャンプの合間の宙返りを復元します" } },
+    { ELanguage::German,   { "Saltos bei Kettensprüngen", "Stellt die Saltoanimationen zwischen Kettensprüngen wieder her." } },
+    { ELanguage::French,   { "Saltos des sauts en chaîne", "Rétablit les animations de salto entre les sauts en chaîne." } },
+    { ELanguage::Spanish,  { "Volteretas en saltos en cadena", "Restaura las animaciones de voltereta entre saltos en cadena." } },
+    { ELanguage::Italian,  { "Capriole nei salti a catena", "Ripristina le animazioni delle capriole tra i salti a catena." } }
+};
+
+CONFIG_DEFINE_LOCALE(RestoreContextualHUDColours)
+{
+    { ELanguage::English,  { "Episode HUD Colours", "Matches HUD colours to the character's episode. Re-enter the level to refresh the HUD." } },
+    { ELanguage::Japanese, { "エピソードに合わせたHUDの色", "キャラクターのエピソードに合わせてHUDの色を変えます。ステージに入り直すと反映されます" } },
+    { ELanguage::German,   { "HUD-Farben passend zur Episode", "Passt die HUD-Farben an die Episode der Figur an. Betritt den Level erneut, um das HUD zu aktualisieren." } },
+    { ELanguage::French,   { "Couleurs du HUD par épisode", "Adapte les couleurs du HUD à l'épisode du personnage. Rentre dans le niveau pour actualiser le HUD." } },
+    { ELanguage::Spanish,  { "Colores del HUD según el episodio", "Adapta los colores del HUD al episodio del personaje. Vuelve a entrar en el nivel para actualizar el HUD." } },
+    { ELanguage::Italian,  { "Colori HUD per episodio", "Adatta i colori dell'HUD all'episodio del personaggio. Entra di nuovo nel livello per aggiornare l'HUD." } }
+};
+
+CONFIG_DEFINE_LOCALE(DisableKingdomValleyMist)
+{
+    { ELanguage::English,  { "Disable Kingdom Valley Mist", "Removes the mist effect from the Max Speed section of Kingdom Valley." } },
+    { ELanguage::Japanese, { "キングダムバレーの霧を無効化", "キングダムバレーの高速区間に表示される霧を消します" } },
+    { ELanguage::German,   { "Nebel in Kingdom Valley deaktivieren", "Entfernt den Nebeleffekt im Max-Speed-Abschnitt von Kingdom Valley." } },
+    { ELanguage::French,   { "Désactiver la brume de Kingdom Valley", "Supprime la brume de la section à pleine vitesse de Kingdom Valley." } },
+    { ELanguage::Spanish,  { "Quitar la niebla de Kingdom Valley", "Elimina la niebla del tramo a máxima velocidad de Kingdom Valley." } },
+    { ELanguage::Italian,  { "Disattiva la nebbia di Kingdom Valley", "Rimuove la nebbia nella sezione ad alta velocità di Kingdom Valley." } }
+};
+
 CONFIG_DEFINE_LOCALE(ControllableHomingRecovery)
 {
     { ELanguage::English,  { "Steer After Homing Attack", "Lets Sonic steer during recovery after a Homing Attack." } },

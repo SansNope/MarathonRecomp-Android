@@ -23,14 +23,19 @@ static constexpr ConfigDef<bool>* GAME_SETTINGS[] =
     &Config::MidairControlForMachSpeed,
     &Config::DisableClimbFromJump,
     &Config::MidairControlForSnowboards,
+    &Config::UnlockSnowboardControl,
     &Config::DisablePushState,
+    &Config::DisableSandJump,
     &Config::RestoreSonicActionGauge,
     &Config::TailsGauge,
     &Config::ControllableTornadoAttack,
+    &Config::ControllableBoundAttack,
+    &Config::ControllableSpinkick,
     &Config::ControllableHomingRecovery,
     &Config::RestoreHomingFlips,
     &Config::RestoreHomingGravity,
     &Config::RestoreHomingSpam,
+    &Config::RestoreChainJumpFlips,
     &Config::AntigravityRetainsMomentum,
     &Config::UnlimitedAntigravity,
     &Config::AlwaysExitVehicles,
@@ -42,9 +47,16 @@ static constexpr ConfigDef<bool>* GAME_SETTINGS[] =
     &Config::ControllablePsychoShock,
     &Config::ControllableTeleportDash,
     &Config::RestoreSilverBossThrow,
+    &Config::ControllableHammerAttack,
+    &Config::DisableMidairSpinningClaw,
     &Config::ControllableOmegaLauncher,
     &Config::ControllableOmegaLockOnShot,
     &Config::FixOmegaShotCollision,
+    &Config::InfiniteLives,
+    &Config::RestorePauseMissionText,
+    &Config::DisableTitleInputDelay,
+    &Config::RestoreContextualHUDColours,
+    &Config::DisableKingdomValleyMist,
 };
 
 static bool g_isClosingButtonWindow{};
@@ -907,7 +919,15 @@ static void DrawOptions(ImVec2 min, ImVec2 max)
                 DrawOption(rowCount++, config, !lowGraphics, lowGraphicsReason, ENUM_VALUE(T), false, false,
                     value);
             };
-            drawQualityOption(&Config::ShadowResolution, Config::GetEffectiveShadowResolution());
+            if (const uint32_t shadowSize = Config::GetShadowMapResolutionOverride())
+            {
+                DrawOption(rowCount++, &Config::ShadowResolution, false, &Localise("Options_Desc_LowGraphics"),
+                    ENUM_VALUE(EShadowResolution), false, false, std::to_string(shadowSize));
+            }
+            else
+            {
+                drawQualityOption(&Config::ShadowResolution, Config::GetEffectiveShadowResolution());
+            }
             drawQualityOption(&Config::ReflectionResolution, Config::GetEffectiveReflectionResolution());
             drawQualityOption(&Config::RadialBlur, Config::GetEffectiveRadialBlur());
             DrawOption(rowCount++, &Config::CutsceneAspectRatio, true);
