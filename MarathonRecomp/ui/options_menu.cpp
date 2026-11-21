@@ -26,6 +26,8 @@ static constexpr ConfigDef<bool>* GAME_SETTINGS[] =
     &Config::UnlockSnowboardControl,
     &Config::DisablePushState,
     &Config::DisableSandJump,
+    &Config::RailSwitching,
+    &Config::ImprovedSpindash,
     &Config::RestoreSonicActionGauge,
     &Config::TailsGauge,
     &Config::ControllableTornadoAttack,

@@ -184,6 +184,8 @@ set(MARATHON_RECOMP_PATCHES_CXX_SOURCES
     "patches/misc_patches.cpp"
     "patches/pause_patches.cpp"
     "patches/player_patches.cpp"
+    "patches/rail_switch_patches.cpp"
+    "patches/spindash_patches.cpp"
     "patches/SaveDataTask_patches.cpp"
     "patches/text_patches.cpp"
     "patches/TitleTask_patches.cpp"

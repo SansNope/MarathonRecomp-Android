@@ -298,6 +298,26 @@ CONFIG_DEFINE_LOCALE(DisableSandJump)
     { ELanguage::Italian,  { "Altezza normale del salto in sabbia e acqua", "Mantiene l'altezza normale quando salti dalla sabbia o dall'acqua." } }
 };
 
+CONFIG_DEFINE_LOCALE(RailSwitching)
+{
+    { ELanguage::English,  { "Rail Switching", "Push the stick toward a nearby rail and press Jump while grinding to flip onto it." } },
+    { ELanguage::Japanese, { "レールスイッチ", "グラインド中に隣のレール方向へスティックを倒してジャンプすると、宙返りで飛び移れます" } },
+    { ELanguage::German,   { "Schienenwechsel", "Drücke beim Grinden den Stick in Richtung einer benachbarten Schiene und drücke Springen, um mit einem Salto hinüberzuspringen." } },
+    { ELanguage::French,   { "Changement de rail", "En glissant sur un rail, incline le stick vers un rail voisin et appuie sur Sauter pour y sauter en salto." } },
+    { ELanguage::Spanish,  { "Cambio de raíl", "Al deslizarte por un raíl, inclina el stick hacia un raíl cercano y pulsa Saltar para pasar a él con una voltereta." } },
+    { ELanguage::Italian,  { "Cambio binario", "Mentre scivoli su un binario, inclina la levetta verso un binario vicino e premi Salta per passarci con una capriola." } }
+};
+
+CONFIG_DEFINE_LOCALE(ImprovedSpindash)
+{
+    { ELanguage::English,  { "Improved Spindash", "Press X while rolling to uncurl and keep your speed. Press X again to charge. Tap B for a Spin Kick, or hold and release B to slide." } },
+    { ELanguage::Japanese, { "強化スピンダッシュ", "転がっている間にXを押すと速度を保ったまま解除し、もう一度Xを押すと溜め直せます。Bを短く押すとスピンキック、長押しして離すとスライディングします" } },
+    { ELanguage::German,   { "Verbesserter Spindash", "Drücke beim Rollen X, um dich bei gleichem Tempo zu entrollen. Drücke erneut X zum Aufladen. Tippe B für einen Drehkick an oder halte B und lass zum Rutschen los." } },
+    { ELanguage::French,   { "Spindash amélioré", "Appuie sur X en roulant pour te redresser sans perdre de vitesse. Appuie de nouveau sur X pour charger. Appuie brièvement sur B pour un coup de pied tournant ou maintiens B et relâche pour glisser." } },
+    { ELanguage::Spanish,  { "Spindash mejorado", "Pulsa X al rodar para salir del giro sin perder velocidad. Vuelve a pulsar X para cargar. Pulsa B brevemente para dar una patada giratoria o mantén B y suéltalo para deslizarte." } },
+    { ELanguage::Italian,  { "Spindash migliorato", "Premi X mentre rotoli per rialzarti senza perdere velocità. Premi di nuovo X per caricare. Premi B brevemente per un calcio rotante o tieni premuto B e rilascialo per scivolare." } }
+};
+
 CONFIG_DEFINE_LOCALE(UnlockSnowboardControl)
 {
     { ELanguage::English,  { "Full Snowboard Steering", "Lets you steer the snowboard in any direction without charging a jump." } },
@@ -420,12 +440,12 @@ CONFIG_DEFINE_LOCALE(AntigravityRetainsMomentum)
 
 CONFIG_DEFINE_LOCALE(UnlimitedAntigravity)
 {
-    { ELanguage::English,  { "Unlimited Sliding Attack", "Stops the X-button Sliding Attack from ending automatically. With B controls, releasing B still ends the slide." } },
-    { ELanguage::Japanese, { "スライディング時間の制限解除", "X操作のスライディングアタックが自動で終了しなくなります。B操作ではBを離すと終了します" } },
-    { ELanguage::German,   { "Unbegrenzter Schlitterangriff", "Der Schlitterangriff mit X endet nicht automatisch. Bei B-Steuerung endet er beim Loslassen von B." } },
-    { ELanguage::French,   { "Attaque glissée illimitée", "L'attaque glissée avec X ne se termine plus automatiquement. Avec la commande B, relâche B pour l'arrêter." } },
-    { ELanguage::Spanish,  { "Ataque derrape ilimitado", "El ataque derrape con X deja de terminar automáticamente. Con el control B, soltar B sigue cancelándolo." } },
-    { ELanguage::Italian,  { "Scivolata illimitata", "La Scivolata con X non termina più automaticamente. Con il comando B, rilascia B per fermarla." } }
+    { ELanguage::English,  { "Unlimited Sliding Attack", "Removes the Sliding Attack time limit. You can still end the slide early with the configured button." } },
+    { ELanguage::Japanese, { "スライディング時間の制限解除", "スライディングアタックの時間制限を解除します。設定したボタン操作で途中で終了できます" } },
+    { ELanguage::German,   { "Unbegrenzter Schlitterangriff", "Hebt das Zeitlimit für den Schlitterangriff auf. Mit der eingestellten Taste kannst du das Rutschen weiterhin vorzeitig beenden." } },
+    { ELanguage::French,   { "Attaque glissée illimitée", "Supprime la limite de temps de l'attaque glissée. Tu peux toujours l'arrêter avec la touche configurée." } },
+    { ELanguage::Spanish,  { "Ataque derrape ilimitado", "Elimina el límite de tiempo del ataque derrape. Aún puedes terminar el deslizamiento con el botón configurado." } },
+    { ELanguage::Italian,  { "Scivolata illimitata", "Rimuove il limite di tempo della Scivolata. Puoi comunque interromperla con il pulsante configurato." } }
 };
 
 CONFIG_DEFINE_LOCALE(AlwaysExitVehicles)

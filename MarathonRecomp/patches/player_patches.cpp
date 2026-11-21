@@ -460,10 +460,9 @@ void RestoreSilverBossThrow(PPCRegister& r12)
 
 bool UnlimitedAntigravity()
 {
-    if (Config::SlidingAttack == ESlidingAttack::B)
-        return true;
-
-    return Config::UnlimitedAntigravity;
+    // The regular B mapping ends on release. Improved Spindash starts the slide on release.
+    return Config::UnlimitedAntigravity ||
+        (!Config::ImprovedSpindash && Config::SlidingAttack == ESlidingAttack::B);
 }
 
 PPC_FUNC_IMPL(__imp__sub_82217FC0);
