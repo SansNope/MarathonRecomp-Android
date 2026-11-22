@@ -182,6 +182,7 @@ set(MARATHON_RECOMP_PATCHES_CXX_SOURCES
     "patches/lua_patches.cpp"
     "patches/MainMenuTask_patches.cpp"
     "patches/misc_patches.cpp"
+    "patches/mach_speed_patches.cpp"
     "patches/pause_patches.cpp"
     "patches/player_patches.cpp"
     "patches/rail_switch_patches.cpp"

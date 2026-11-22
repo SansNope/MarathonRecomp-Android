@@ -141,6 +141,7 @@ CONFIG_DEFINE_HIDDEN("Codes", bool, FixEnvironmentMaps, true, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, FixOmegaShotCollision, false, false);
 CONFIG_DEFINE_HIDDEN("Codes", bool, FixPowerUpJingleDuration, true, false);
 CONFIG_DEFINE_HIDDEN("Codes", bool, HUDToggleKey, false, false);
+CONFIG_DEFINE_LOCALISED("Codes", bool, ImprovedMachSpeed, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, ImprovedSpindash, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, IncreasedChaosBlastRange, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, InfiniteLives, false, false);

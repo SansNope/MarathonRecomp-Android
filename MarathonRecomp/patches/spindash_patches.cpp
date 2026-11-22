@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <mutex>
 #include <unordered_map>
-#include <unordered_set>
 
 // P-06 / Sonic Adventure-style Spindash for Sonic.
 //
@@ -28,6 +27,12 @@ namespace
     constexpr uint32_t kPostureControlVftable = 0x82009048u;
     constexpr uint32_t kPostureWorldInputQuatOffset = 0x2E0u;
     constexpr uint32_t kPostureWorldInputMagOffset = 0x2F0u;
+    constexpr uint32_t kSonicFallVftable = 0x8200B318u;
+    constexpr uint32_t kSonicJumpVftable = 0x8200B34Cu;
+
+    // The two forward speed limits read by the shared air movement routine.
+    constexpr uint32_t kAirWalkLimitOffset = 0x188u;
+    constexpr uint32_t kAirRunLimitOffset = 0x18Cu;
 
     // Logical button bits from ListenerNormal (forwarded to ICommonContext::m_Buttons).
     constexpr uint32_t kBtnAPressed = 0x00000001u;
@@ -72,7 +77,9 @@ namespace
     constexpr float kRollFrictionNeutral = 700.0f;   // Drag when stick is neutral.
     constexpr float kRollFrictionBrake = 2200.0f;    // Braking drag when pulling stick opposite.
     constexpr float kMinStickMagnitude = 0.20f;
-    constexpr float kUncurlDeceleration = 900.0f; // Ground speed above Sonic's normal running cap.
+    constexpr float kUncurlDeceleration = 900.0f;      // Ground speed decay above Sonic's normal cap.
+    constexpr float kAirMomentumDeceleration = 180.0f; // Gentle air drag when carrying Spindash speed through jumps/falls.
+    constexpr float kJumpExcessSpeedRatio = 0.60f;     // Fraction of rolling speed above the normal air limit carried into a jump.
 
     struct Vec3
     {
@@ -327,9 +334,14 @@ namespace
         float rollSpeed{};
     };
 
+    struct UncurlRuntime
+    {
+        bool airStepStarted{};
+    };
+
     std::mutex g_spindashMutex;
     std::unordered_map<uint32_t, SpindashRuntime> g_spindashStates;
-    std::unordered_set<uint32_t> g_uncurlContexts;
+    std::unordered_map<uint32_t, UncurlRuntime> g_uncurlContexts;
 
     bool TryStartBAction(uint8_t* base, uint32_t machineAddr,
         Sonicteam::Player::State::SonicContext* pSonicCtx, uint32_t buttons)
@@ -422,11 +434,12 @@ PPC_FUNC(sub_8220A630)
             const float speed = pContext->m_BaseSpeedForward.get();
 
             if (Config::ImprovedSpindash && std::isfinite(speed) && speed > normalLimit &&
-                (flags & Sonicteam::Player::PostureControlFlags_Grounded) != 0u &&
                 (flags & kPostureFlagWall) == 0u && pContext->m_LockButtons.get() <= 0.0f)
             {
+                const bool grounded = (flags & Sonicteam::Player::PostureControlFlags_Grounded) != 0u;
+                const double decel = grounded ? kUncurlDeceleration : kAirMomentumDeceleration;
                 const double dt = std::clamp(ctx.f1.f64, 0.0, 0.1);
-                ctx.f3.f64 = std::max(normalLimit, speed - kUncurlDeceleration * dt);
+                ctx.f3.f64 = std::max(normalLimit, speed - decel * dt);
                 pSonicCtx = pContext;
             }
             else
@@ -443,6 +456,72 @@ PPC_FUNC(sub_8220A630)
         // Keep the original return value's meaning for animation and state transitions.
         const float speed = pSonicCtx->m_BaseSpeedForward.get() + pSonicCtx->m_GimmickSpeedForward.get();
         ctx.r3.u64 = speed >= normalLimit ? 1u : 0u;
+    }
+}
+
+// SonicJump and SonicFall call this through their movement vtable slot. The
+// stock air step (sub_8220C938) writes the horizontal speed directly.
+PPC_FUNC_IMPL(__imp__sub_8220D2C0);
+PPC_FUNC(sub_8220D2C0)
+{
+    const uint32_t stateAddr = ctx.r3.u32;
+    if (!Config::ImprovedSpindash || !IsValidGuestHeapPtr(stateAddr))
+        return __imp__sub_8220D2C0(ctx, base);
+
+    const uint32_t vftable = ReadGuestU32(base, stateAddr);
+    if (vftable != kSonicJumpVftable && vftable != kSonicFallVftable)
+        return __imp__sub_8220D2C0(ctx, base);
+
+    const uint32_t contextAddr = ReadGuestU32(base, stateAddr + 8u);
+    auto* pContext = reinterpret_cast<Sonicteam::Player::State::SonicContext*>(base + contextAddr);
+    float before = 0.0f;
+    float retainedSpeed = 0.0f;
+    bool firstAirStep = false;
+    {
+        std::lock_guard lock(g_spindashMutex);
+        const auto it = g_uncurlContexts.find(contextAddr);
+        if (it != g_uncurlContexts.end())
+        {
+            using namespace Sonicteam::Player;
+            constexpr uint32_t interrupts = PostureControlFlags_WallSide | PostureControlFlags_WallFront |
+                PostureControlFlags_RailGrind | PostureControlFlags_MoveOnly;
+            const uint32_t flags = pContext->m_PostureFlags.get();
+            const float walkLimit = ReadGuestF32(base, contextAddr + kAirWalkLimitOffset);
+            const float runLimit = ReadGuestF32(base, contextAddr + kAirRunLimitOffset);
+            const float normalLimit = std::max(walkLimit, runLimit);
+            before = pContext->m_BaseSpeedForward.get();
+
+            if ((flags & interrupts) == 0u && pContext->m_LockButtons.get() <= 0.0f &&
+                std::isfinite(walkLimit) && std::isfinite(runLimit) && normalLimit > 0.0f &&
+                std::isfinite(before) && before > normalLimit && std::isfinite(ctx.f1.f64))
+            {
+                const float dt = static_cast<float>(std::clamp(ctx.f1.f64, 0.0, 0.1));
+                firstAirStep = !it->second.airStepStarted;
+                it->second.airStepStarted = true;
+                const float carrySpeed = firstAirStep && vftable == kSonicJumpVftable
+                    ? std::lerp(normalLimit, before, kJumpExcessSpeedRatio)
+                    : before;
+                retainedSpeed = std::max(normalLimit, carrySpeed - kAirMomentumDeceleration * dt);
+            }
+            else
+            {
+                g_uncurlContexts.erase(it);
+            }
+        }
+    }
+
+    __imp__sub_8220D2C0(ctx, base);
+
+    if (retainedSpeed > 0.0f)
+    {
+        const float stockSpeed = pContext->m_BaseSpeedForward.get();
+        pContext->m_BaseSpeedForward = retainedSpeed;
+
+        if (firstAirStep)
+        {
+            LOGF("[spindash] Air step (state={}, entry={:.0f}, stock={:.0f}, retained={:.0f})",
+                vftable == kSonicJumpVftable ? "jump" : "fall", before, stockSpeed, retainedSpeed);
+        }
     }
 }
 
@@ -587,6 +666,10 @@ PPC_FUNC(sub_82217AF0)
         if (CallChangeState(base, machineAddr, kStateFall))
         {
             pSonicCtx->m_BaseSpeedForward = std::max(pSonicCtx->m_BaseSpeedForward.get(), carrySpeed);
+            {
+                std::lock_guard lock(g_spindashMutex);
+                g_uncurlContexts.try_emplace(sonicCtxAddr);
+            }
             ctx.r3.u64 = 1u;
             return;
         }
@@ -608,7 +691,13 @@ PPC_FUNC(sub_82217AF0)
             pSonicCtx->m_BaseSpeedForward = jumpCarrySpeed;
             if (CallChangeState(base, machineAddr, kStateJump))
             {
-                pSonicCtx->m_BaseSpeedForward = std::max(pSonicCtx->m_BaseSpeedForward.get(), jumpCarrySpeed);
+                const float finalSpeed = std::max(pSonicCtx->m_BaseSpeedForward.get(), jumpCarrySpeed);
+                pSonicCtx->m_BaseSpeedForward = finalSpeed;
+                {
+                    std::lock_guard lock(g_spindashMutex);
+                    g_uncurlContexts.try_emplace(sonicCtxAddr);
+                }
+                LOGF("[spindash] Jump from charge (speed={:.0f})", finalSpeed);
                 ctx.r3.u64 = 1u;
                 return;
             }
@@ -661,7 +750,13 @@ PPC_FUNC(sub_82217AF0)
 
         if (CallChangeState(base, machineAddr, kStateJump))
         {
-            pSonicCtx->m_BaseSpeedForward = std::max(pSonicCtx->m_BaseSpeedForward.get(), jumpCarrySpeed);
+            const float finalSpeed = std::max(pSonicCtx->m_BaseSpeedForward.get(), jumpCarrySpeed);
+            pSonicCtx->m_BaseSpeedForward = finalSpeed;
+            {
+                std::lock_guard lock(g_spindashMutex);
+                g_uncurlContexts.try_emplace(sonicCtxAddr);
+            }
+            LOGF("[spindash] Jump from roll (speed={:.0f})", finalSpeed);
             ctx.r3.u64 = 1u;
             return;
         }
@@ -687,7 +782,7 @@ PPC_FUNC(sub_82217AF0)
         pSonicCtx->m_Buttons = savedButtons & ~(InputListenerButtons::XPhysicalPressed | kBtnXPressed);
         {
             std::lock_guard lock(g_spindashMutex);
-            g_uncurlContexts.insert(sonicCtxAddr);
+            g_uncurlContexts.try_emplace(sonicCtxAddr);
         }
 
         if (CallSpindashExit(stateAddr))

@@ -188,6 +188,16 @@ CONFIG_DEFINE_LOCALE(MidairControlForMachSpeed)
     { ELanguage::Italian,  { "Controllo aereo ad alta velocità", "Controlla Sonic in aria nelle sezioni ad alta velocità." } }
 };
 
+CONFIG_DEFINE_LOCALE(ImprovedMachSpeed)
+{
+    { ELanguage::English,  { "Improved Mach Speed", "Adds P-06-style braking by holding B or pulling the stick back in Mach Speed sections, plus non-lethal wall slam recovery below 90% max speed." } },
+    { ELanguage::Japanese, { "高速ステージ操作改善", "高速ステージでBボタンまたはスティック後方入力で減速でき、最高速度90%未満の壁衝突ではリングを落とさず弾き返されます" } },
+    { ELanguage::German,   { "Verbesserter Mach Speed", "Ermöglicht P-06-artiges Abbremsen durch Halten von B oder Zurückziehen des Sticks in Mach-Speed-Abschnitten sowie Wandabpraller ohne Ringverlust unter 90 % Höchstgeschwindigkeit." } },
+    { ELanguage::French,   { "Mach Speed amélioré", "Ajoute le freinage style P-06 en maintenant B ou en tirant le stick vers l'arrière et un rebond mural sans perte d'anneaux sous 90 % de la vitesse maximale." } },
+    { ELanguage::Spanish,  { "Mach Speed mejorado", "Añade frenado estilo P-06 manteniendo B o tirando de la palanca hacia atrás y rebote contra paredes sin perder anillos por debajo del 90 % de la velocidad máxima." } },
+    { ELanguage::Italian,  { "Mach Speed migliorato", "Aggiunge la frenata in stile P-06 tenendo premuto B o tirando la levetta indietro e il rimbalzo contro i muri senza perdere anelli sotto il 90% della velocità massima." } }
+};
+
 CONFIG_DEFINE_LOCALE(DisableClimbFromJump)
 {
     { ELanguage::English,  { "Wall Jump Fix", "Stops Knuckles and Rouge from grabbing walls during a normal jump. They can still grab walls while gliding." } },

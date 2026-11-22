@@ -21,6 +21,7 @@ static constexpr int MAX_VISIBLE_ROWS = 3;
 static constexpr ConfigDef<bool>* GAME_SETTINGS[] =
 {
     &Config::MidairControlForMachSpeed,
+    &Config::ImprovedMachSpeed,
     &Config::DisableClimbFromJump,
     &Config::MidairControlForSnowboards,
     &Config::UnlockSnowboardControl,
