@@ -74,8 +74,7 @@ namespace os::android
         return path;
     }
 
-    // Optional launcher-provided storage choice; the method does not have to exist.
-    static std::string QueryActivityStoragePath()
+    static std::string QueryActivityStoragePath(const char* methodName)
     {
         auto env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
         auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
@@ -84,7 +83,7 @@ namespace os::android
         if (env && activity)
         {
             jclass activityClass = env->GetObjectClass(activity);
-            jmethodID method = env->GetMethodID(activityClass, "getGameStoragePath", "()Ljava/lang/String;");
+            jmethodID method = env->GetMethodID(activityClass, methodName, "()Ljava/lang/String;");
 
             if (method == nullptr)
             {
@@ -126,7 +125,7 @@ namespace os::android
     {
         static std::filesystem::path root = []() -> std::filesystem::path
         {
-            std::filesystem::path selected = QueryActivityStoragePath();
+            std::filesystem::path selected = QueryActivityStoragePath("getGameStoragePath");
 
             if (selected.empty() && !GetExternalFilesDir().empty())
                 selected = GetExternalFilesDir() / "MarathonRecomp";
@@ -138,6 +137,24 @@ namespace os::android
                 std::_Exit(1);
             }
 
+            return selected;
+        }();
+
+        return root;
+    }
+
+    const std::filesystem::path& GetSaveRoot()
+    {
+        static const std::filesystem::path root = []() -> std::filesystem::path
+        {
+            std::filesystem::path selected = QueryActivityStoragePath("getSaveStoragePath");
+            if (selected.empty())
+            {
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Marathon Recompiled",
+                    "The selected save folder is unavailable or not writable. Check the save location in the launcher.",
+                    nullptr);
+                std::_Exit(1);
+            }
             return selected;
         }();
 

@@ -21,13 +21,6 @@ public class MarathonActivity extends SDLActivity {
     /** Launcher -> game: pass --skip-logos to main(). */
     static final String EXTRA_SKIP_LOGOS = "io.github.sansnope.marathonrecomp.SKIP_LOGOS";
 
-    private static volatile boolean gameStorageLocked;
-
-    /** True once native code resolved its storage root; it stays fixed for this process. */
-    static boolean isGameStorageLocked() {
-        return gameStorageLocked;
-    }
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -49,11 +42,23 @@ public class MarathonActivity extends SDLActivity {
 
     /** Called by native storage_android.cpp so every component uses the same root. */
     public String getGameStoragePath() {
-        gameStorageLocked = true;
+        AppStorage.lockGameStorage();
         File root = AppStorage.activeGameRoot(this);
         try {
             AppStorage.validateRoot(this, root);
             return root.getCanonicalPath();
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception.getMessage(), exception);
+        }
+    }
+
+    /** Called once by native code to freeze the save path for this process. */
+    public String getSaveStoragePath() {
+        AppStorage.lockGameStorage();
+        File directory = AppStorage.saveDir(this);
+        try {
+            AppStorage.validateActiveSaveDir(this);
+            return directory.getCanonicalPath();
         } catch (IOException exception) {
             throw new IllegalStateException(exception.getMessage(), exception);
         }

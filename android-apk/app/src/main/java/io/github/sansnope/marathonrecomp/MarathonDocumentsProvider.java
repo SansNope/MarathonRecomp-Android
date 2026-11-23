@@ -80,7 +80,11 @@ public final class MarathonDocumentsProvider extends DocumentsProvider {
         MatrixCursor result = new MatrixCursor(resolveProjection(projection, DEFAULT_ROOT_PROJECTION));
 
         for (RootInfo root : getRoots()) {
-            ensureDirectory(root.directory);
+            if (ROOT_SAVE.equals(root.id) && AppStorage.usesSharedSaves(requireContext())) {
+                if (!root.directory.isDirectory()) continue;
+            } else {
+                ensureDirectory(root.directory);
+            }
             MatrixCursor.RowBuilder row = result.newRow();
             addColumn(result, row, Root.COLUMN_ROOT_ID, root.id);
             addColumn(result, row, Root.COLUMN_DOCUMENT_ID, createDocumentId(root, root.directory));

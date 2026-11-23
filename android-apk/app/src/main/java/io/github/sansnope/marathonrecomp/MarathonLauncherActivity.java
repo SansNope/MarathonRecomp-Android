@@ -146,7 +146,8 @@ public final class MarathonLauncherActivity extends Activity {
     private SharedPreferences prefs;
     private InstallState lastInstallState;
     private TextView storageStatus;
-    private boolean fileOperation;
+    private TextView saveStorageStatus;
+    private static boolean fileOperation;
 
     // Home pane.
     private LinearLayout homeContent;
@@ -332,6 +333,10 @@ public final class MarathonLauncherActivity extends Activity {
         storageStatus.setPadding(0, dp(16), 0, 0);
         section.addView(storageStatus);
         buttonGrid(section, button(R.string.storage_choose, view -> chooseStorage()));
+        saveStorageStatus = statusText();
+        saveStorageStatus.setPadding(0, dp(16), 0, 0);
+        section.addView(saveStorageStatus);
+        buttonGrid(section, button(R.string.save_storage_choose, view -> chooseSaveStorage()));
     }
 
     private void buildGraphicsSection(LinearLayout section) {
@@ -565,7 +570,7 @@ public final class MarathonLauncherActivity extends Activity {
     private void exitApp() {
         // Back/Home keep a started game alive in this process, and SDL cannot boot a
         // second session in it, so leaving with a running game means ending the process.
-        if (!MarathonActivity.isGameStorageLocked()) {
+        if (!AppStorage.isGameStorageLocked()) {
             finishAndRemoveTask();
             return;
         }
@@ -582,6 +587,7 @@ public final class MarathonLauncherActivity extends Activity {
     private void refreshStatuses() {
         File currentRoot = AppStorage.activeGameRoot(this);
         storageStatus.setText(getString(R.string.storage_current, currentRoot));
+        saveStorageStatus.setText(getString(R.string.save_storage_current, AppStorage.saveDir(this)));
         lastInstallState = inspectInstallation();
         installStatus.setText(lastInstallState.message);
         installStatus.setTextColor(lastInstallState.ready ? COLOR_SUCCESS : COLOR_DANGER);
@@ -794,6 +800,12 @@ public final class MarathonLauncherActivity extends Activity {
 
     private void launchGame(boolean editControls) {
         if (fileOperation) { showError(getString(R.string.storage_busy)); return; }
+        try {
+            AppStorage.validateActiveSaveDir(this);
+        } catch (IOException exception) {
+            showError(FileErrorMessages.describe(this, exception));
+            return;
+        }
         if (!saveSettings()) return;
         InstallState current = inspectInstallation();
         if (!current.ready) {
@@ -887,7 +899,7 @@ public final class MarathonLauncherActivity extends Activity {
     // ------------------------------------------------------------------
 
     private void chooseInstallSource() {
-        if (fileOperation || MarathonActivity.isGameStorageLocked()) {
+        if (fileOperation || AppStorage.isGameStorageLocked()) {
             showError(getString(R.string.storage_restart));
             return;
         }
@@ -986,7 +998,7 @@ public final class MarathonLauncherActivity extends Activity {
 
     private void chooseStorage() {
         if (fileOperation) { showError(getString(R.string.storage_busy)); return; }
-        if (MarathonActivity.isGameStorageLocked()) { showError(getString(R.string.storage_restart)); return; }
+        if (AppStorage.isGameStorageLocked()) { showError(getString(R.string.storage_restart)); return; }
         List<AppStorage.Choice> choices = AppStorage.storageChoices(this);
         String[] labels = new String[choices.size()];
         for (int index = 0; index < choices.size(); index++) {
@@ -996,6 +1008,70 @@ public final class MarathonLauncherActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(R.string.storage_choose)
             .setItems(labels, (dialog, index) -> confirmStorage(choices.get(index)))
             .setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    private void chooseSaveStorage() {
+        if (fileOperation) { showError(getString(R.string.storage_busy)); return; }
+        if (AppStorage.isGameStorageLocked()) { showError(getString(R.string.storage_restart)); return; }
+        String[] labels = {getString(R.string.save_storage_installation), getString(R.string.save_storage_shared)};
+        new AlertDialog.Builder(this).setTitle(R.string.save_storage_choose)
+            .setSingleChoiceItems(labels, AppStorage.usesSharedSaves(this) ? 1 : 0, (dialog, index) -> {
+                dialog.dismiss();
+                boolean shared = index == 1;
+                if (shared != AppStorage.usesSharedSaves(this)) confirmSaveStorage(shared);
+            })
+            .setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    private void confirmSaveStorage(boolean shared) {
+        File source = AppStorage.saveDir(this);
+        File target = shared ? AppStorage.primarySharedSaveDir(this) : AppStorage.installationSaveDir(this);
+        if (target == null) {
+            showError(getString(R.string.save_storage_shared_unavailable));
+            return;
+        }
+        try {
+            AppStorage.validateSaveDir(this, target, shared, true);
+            boolean hasSaves = StorageMigration.hasSaves(target);
+            new AlertDialog.Builder(this).setTitle(R.string.save_storage_choose)
+                .setMessage(getString(hasSaves ? R.string.save_storage_confirm_existing
+                    : R.string.save_storage_confirm_empty, target))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.save_storage_use,
+                    (dialog, which) -> changeSaveStorage(source, target, shared, false))
+                .setNeutralButton(R.string.save_storage_copy,
+                    (dialog, which) -> changeSaveStorage(source, target, shared, true))
+                .show();
+        } catch (IOException exception) {
+            showError(FileErrorMessages.describe(this, exception));
+        }
+    }
+
+    private void changeSaveStorage(File source, File target, boolean shared, boolean copy) {
+        if (fileOperation) { showError(getString(R.string.storage_busy)); return; }
+        if (AppStorage.isGameStorageLocked()) { showError(getString(R.string.storage_restart)); return; }
+        fileOperation = true;
+        AlertDialog progress = new AlertDialog.Builder(this).setMessage(R.string.save_storage_changing)
+            .setCancelable(false).show();
+        new Thread(() -> {
+            String error = null;
+            try {
+                if (copy) {
+                    AppStorage.validateActiveSaveDir(this);
+                    StorageMigration.copySaves(source, target);
+                }
+                AppStorage.selectSaveStorage(this, target, shared);
+            } catch (IOException | SecurityException exception) {
+                error = FileErrorMessages.describe(this, exception);
+            }
+            String result = error;
+            runOnUiThread(() -> {
+                fileOperation = false;
+                progress.dismiss();
+                if (result != null) showError(result);
+                refreshStatuses();
+            });
+        }, "save-storage").start();
     }
 
     private void confirmStorage(AppStorage.Choice choice) {
@@ -1235,6 +1311,7 @@ public final class MarathonLauncherActivity extends Activity {
 
     private void openFiles(String rootId) {
         try {
+            if ("save".equals(rootId)) AppStorage.validateActiveSaveDir(this);
             Uri directory = DocumentsContract.buildRootUri(getPackageName() + ".documents", rootId);
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(directory, "vnd.android.document/root");
@@ -1242,6 +1319,8 @@ public final class MarathonLauncherActivity extends Activity {
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
                 Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
             startActivity(intent);
+        } catch (IOException exception) {
+            showError(FileErrorMessages.describe(this, exception));
         } catch (Exception exception) {
             showError(getString(R.string.error_open_files));
         }

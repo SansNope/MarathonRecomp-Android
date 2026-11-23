@@ -3,6 +3,7 @@ package io.github.sansnope.marathonrecomp;
 // Ported from UnleashedRecomp-Android 0.6.1 (org.libsdl.app.AppStorage).
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Environment;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
@@ -14,7 +15,23 @@ import java.util.List;
 
 /** Paths shared by the launcher, document provider and native Android storage policy. */
 final class AppStorage {
+    private static final String SHARED_SAVE_PATH = "shared_save_path";
+    private static volatile boolean gameStorageLocked;
+
     private AppStorage() {}
+
+    /** Native paths stay fixed until the game process exits. */
+    static boolean isGameStorageLocked() {
+        return gameStorageLocked;
+    }
+
+    static synchronized void lockGameStorage() {
+        gameStorageLocked = true;
+    }
+
+    private static SharedPreferences storagePreferences(Context context) {
+        return context.getSharedPreferences("game_storage", Context.MODE_PRIVATE);
+    }
 
     /**
      * App-specific dir under Android/media. Unlike Android/data, on-device file
@@ -28,8 +45,7 @@ final class AppStorage {
 
     /** Native GetDataRoot queries this through MarathonActivity.getGameStoragePath(). */
     static File activeGameRoot(Context context) {
-        String selected = context.getSharedPreferences("game_storage", Context.MODE_PRIVATE)
-            .getString("root", "");
+        String selected = storagePreferences(context).getString("root", "");
         return selected.isEmpty() ? automaticGameRoot(context) : new File(selected);
     }
 
@@ -100,28 +116,89 @@ final class AppStorage {
                 throw new IOException(context.getString(R.string.storage_unavailable, root), exception);
             }
         }
-        if (!root.isDirectory() && !root.mkdirs()) throw new IOException(context.getString(R.string.error_storage_create, root));
-        File probe = File.createTempFile("write-probe-", ".tmp", root);
-        if (!probe.delete()) throw new IOException(context.getString(R.string.error_storage_write, root));
+        ensureWritableDirectory(context, root);
     }
 
-    static void selectStorage(Context context, Choice choice) throws IOException {
+    private static void ensureWritableDirectory(Context context, File directory) throws IOException {
+        if (!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory()) {
+            throw new IOException(context.getString(R.string.error_storage_create, directory));
+        }
+        probeWritableDirectory(context, directory);
+    }
+
+    private static void probeWritableDirectory(Context context, File directory) throws IOException {
+        File probe = File.createTempFile(".write-probe-", ".tmp", directory);
+        if (!probe.delete()) throw new IOException(context.getString(R.string.error_storage_write, directory));
+    }
+
+    static synchronized void selectStorage(Context context, Choice choice) throws IOException {
+        if (gameStorageLocked) throw new LocalizedIOException("storage_restart", null);
         validateRoot(context, choiceRoot(context, choice));
-        android.content.SharedPreferences.Editor edit = context.getSharedPreferences("game_storage", Context.MODE_PRIVATE).edit();
+        SharedPreferences.Editor edit = storagePreferences(context).edit();
         if (choice.root == null) edit.remove("root");
         else edit.putString("root", choice.root.getCanonicalPath());
         if (!edit.commit()) throw new LocalizedIOException("error_storage_selection", null);
-        context.getContentResolver().notifyChange(android.provider.DocumentsContract.buildRootsUri(
-            context.getPackageName() + ".documents"), null);
+        notifyRootsChanged(context);
     }
 
     static File configFile(Context context) {
         return new File(activeGameRoot(context), ".config/MarathonRecomp/config.toml");
     }
 
-    /** Where native paths.cpp keeps save data: <game root>/.config/MarathonRecomp/save. */
-    static File saveDir(Context context) {
+    static File installationSaveDir(Context context) {
         return new File(activeGameRoot(context), ".config/MarathonRecomp/save");
+    }
+
+    static File primarySharedSaveDir(Context context) {
+        File media = mediaBase(context);
+        return media != null ? new File(media, "saves") : null;
+    }
+
+    static boolean usesSharedSaves(Context context) {
+        return storagePreferences(context).contains(SHARED_SAVE_PATH);
+    }
+
+    /** Base save directory for the document provider and the game. */
+    static File saveDir(Context context) {
+        String selected = storagePreferences(context).getString(SHARED_SAVE_PATH, null);
+        return selected != null ? new File(selected) : installationSaveDir(context);
+    }
+
+    static void validateActiveSaveDir(Context context) throws IOException {
+        if (usesSharedSaves(context)) validateSaveDir(context, saveDir(context), true, false);
+    }
+
+    static void validateSaveDir(Context context, File directory, boolean shared, boolean create) throws IOException {
+        try {
+            if (shared && !Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState(directory))) {
+                throw new IOException();
+            }
+            if (create) ensureWritableDirectory(context, directory);
+            else probeWritableDirectory(context, directory);
+        } catch (IOException | IllegalArgumentException | SecurityException exception) {
+            throw new IOException(context.getString(R.string.save_storage_unavailable, directory), exception);
+        }
+    }
+
+    static synchronized void selectSaveStorage(Context context, File directory, boolean shared) throws IOException {
+        if (gameStorageLocked) throw new LocalizedIOException("storage_restart", null);
+        validateSaveDir(context, directory, shared, false);
+        SharedPreferences preferences = storagePreferences(context);
+        String previous = preferences.getString(SHARED_SAVE_PATH, null);
+        SharedPreferences.Editor edit = preferences.edit();
+        if (shared) edit.putString(SHARED_SAVE_PATH, directory.getCanonicalPath());
+        else edit.remove(SHARED_SAVE_PATH);
+        if (!edit.commit()) {
+            // A failed commit still updates Android's in-memory preference map.
+            preferences.edit().putString(SHARED_SAVE_PATH, previous).apply();
+            throw new LocalizedIOException("error_storage_selection", null);
+        }
+        notifyRootsChanged(context);
+    }
+
+    private static void notifyRootsChanged(Context context) {
+        context.getContentResolver().notifyChange(android.provider.DocumentsContract.buildRootsUri(
+            context.getPackageName() + ".documents"), null);
     }
 
     static File transferRoot(Context context) {

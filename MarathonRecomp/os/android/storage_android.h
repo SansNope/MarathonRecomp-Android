@@ -16,9 +16,12 @@ namespace os::android
     // so users can drop driver files there without a PC. Empty if unavailable.
     const std::filesystem::path& GetExternalMediaDir();
 
-    // Root for game files, config and saves. Asks the activity for getGameStoragePath()
+    // Root for game files and config. Asks the activity for getGameStoragePath()
     // (the launcher's AppStorage policy) over JNI and falls back to
     // GetExternalFilesDir()/MarathonRecomp. Fixed for the game session;
     // an unusable directory is reported to the user and terminates the process.
     const std::filesystem::path& GetDataRoot();
+
+    // Base save directory selected in the launcher. Fixed for the game session.
+    const std::filesystem::path& GetSaveRoot();
 }

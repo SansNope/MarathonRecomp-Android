@@ -68,8 +68,11 @@ inline std::filesystem::path GetSavePath(bool checkForMods)
 {
     if (checkForMods && !ModLoader::s_saveFilePath.empty())
         return ModLoader::s_saveFilePath.parent_path();
-    else
-        return GetUserPath() / "save";
+#ifdef __ANDROID__
+    return os::android::GetSaveRoot();
+#else
+    return GetUserPath() / "save";
+#endif
 }
 
 // Returned file name may not necessarily be

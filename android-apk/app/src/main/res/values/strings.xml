@@ -126,7 +126,7 @@
     <string name="storage_app">%1$s — app folder</string>
     <string name="storage_media">%1$s — Android/media folder</string>
     <string name="storage_unavailable">Selected storage is unavailable:\n%1$s\n\nReconnect the SD card or choose another storage location.</string>
-    <string name="storage_confirm">Use this folder for the game, settings and saves:\n%1$s\n\nFiles in the previous folder will be kept. Choose Copy current installation to copy and verify everything before switching.</string>
+    <string name="storage_confirm">Use this folder for the game and settings:\n%1$s\n\nSaves stored with the installation are included when copying. Files in the previous folder will be kept.</string>
     <string name="storage_use">Use this folder</string>
     <string name="storage_copy">Copy current installation</string>
     <string name="storage_copying">Copying and verifying the game and saves…</string>
@@ -135,6 +135,20 @@
     <string name="storage_busy">Wait for the current file operation to finish.</string>
     <string name="storage_restart">Fully close and reopen the app before changing storage or importing game files. A game session is already running in this process.</string>
     <string name="storage_native_unavailable">The selected game storage is unavailable or not writable. Reconnect the SD card or choose another storage location in the launcher.</string>
+
+    <string name="save_storage_choose">Choose save location</string>
+    <string name="save_storage_current">Save location:\n%1$s</string>
+    <string name="save_storage_installation">With the game installation</string>
+    <string name="save_storage_shared">Shared folder (Android/media)</string>
+    <string name="save_storage_confirm_existing">This folder already contains saves:\n%1$s\n\nChoose Use this folder to play with its saves. Copy current saves can fill in missing files and will stop if a file differs.</string>
+    <string name="save_storage_confirm_empty">Use this save folder:\n%1$s\n\nCopy current saves to bring your progress with you. To use synced saves, wait for them to arrive before playing.</string>
+    <string name="save_storage_use">Use this folder</string>
+    <string name="save_storage_copy">Copy current saves</string>
+    <string name="save_storage_changing">Preparing save location…</string>
+    <string name="save_storage_unavailable">The save folder is unavailable or not writable:\n%1$s\n\nMake the folder available again or choose a different save location.</string>
+    <string name="save_storage_shared_unavailable">The shared save folder on primary storage is unavailable.</string>
+    <string name="save_storage_conflict">This file differs from the current saves:\n%1$s\n\nChoose Use this folder to play with the saves already there, or keep your current location.</string>
+    <string name="save_storage_invalid_file">Expected a regular save file at:\n%1$s</string>
 
     <string name="error_io_create">Cannot create the folder:\n%1$s</string>
     <string name="error_io_read">Cannot read:\n%1$s</string>

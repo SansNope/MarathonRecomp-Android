@@ -123,7 +123,7 @@
     <string name="storage_app">%1$s — папка приложения</string>
     <string name="storage_media">%1$s — папка Android/media</string>
     <string name="storage_unavailable">Выбранное хранилище недоступно:\n%1$s\n\nПодключите SD-карту снова или выберите другое место.</string>
-    <string name="storage_confirm">Использовать эту папку для игры, настроек и сохранений:\n%1$s\n\nФайлы в прежней папке останутся. Выберите «Копировать текущую установку», чтобы скопировать и проверить всё перед переключением.</string>
+    <string name="storage_confirm">Использовать эту папку для игры и настроек:\n%1$s\n\nПри копировании установки будут скопированы и сохранения, которые хранятся в её папке. Исходные файлы останутся на месте.</string>
     <string name="storage_use">Использовать эту папку</string>
     <string name="storage_copy">Копировать текущую установку</string>
     <string name="storage_copying">Копирование и проверка игры и сохранений…</string>
@@ -132,6 +132,20 @@
     <string name="storage_busy">Дождитесь завершения текущей операции с файлами.</string>
     <string name="storage_restart">Полностью закройте и снова откройте приложение перед сменой хранилища или установкой файлов игры. В этом процессе уже запущена игра.</string>
     <string name="storage_native_unavailable">Выбранное хранилище игры недоступно или защищено от записи. Подключите SD-карту снова или выберите другое место в лаунчере.</string>
+
+    <string name="save_storage_choose">Выбрать папку сохранений</string>
+    <string name="save_storage_current">Папка сохранений:\n%1$s</string>
+    <string name="save_storage_installation">В папке установки игры</string>
+    <string name="save_storage_shared">В общей папке (Android/media)</string>
+    <string name="save_storage_confirm_existing">В этой папке уже есть сохранения:\n%1$s\n\nВыберите «Использовать эту папку», чтобы играть с её сохранениями. Копирование может добавить недостающие файлы. Если файл отличается, копирование остановится.</string>
+    <string name="save_storage_confirm_empty">Использовать эту папку для сохранений:\n%1$s\n\nЧтобы продолжить со своим прогрессом, скопируйте текущие сохранения. Если вы переносите их через синхронизацию, дождитесь её окончания перед запуском игры.</string>
+    <string name="save_storage_use">Использовать эту папку</string>
+    <string name="save_storage_copy">Копировать сохранения</string>
+    <string name="save_storage_changing">Подготовка папки сохранений…</string>
+    <string name="save_storage_unavailable">Папка сохранений недоступна или защищена от записи:\n%1$s\n\nВосстановите доступ к папке или выберите другую.</string>
+    <string name="save_storage_shared_unavailable">Общая папка сохранений на основном накопителе недоступна.</string>
+    <string name="save_storage_conflict">Этот файл отличается от текущих сохранений:\n%1$s\n\nВыберите «Использовать эту папку», чтобы играть с сохранениями в ней, или оставьте текущую папку.</string>
+    <string name="save_storage_invalid_file">Здесь должен быть файл сохранения:\n%1$s</string>
 
     <string name="error_io_create">Не удалось создать папку:\n%1$s</string>
     <string name="error_io_read">Не удалось прочитать:\n%1$s</string>

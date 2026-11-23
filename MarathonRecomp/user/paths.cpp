@@ -25,7 +25,7 @@ std::filesystem::path BuildUserPath()
 
     CoTaskMemFree(knownPath);
 #elif defined(__ANDROID__)
-    // An app UID has no meaningful $HOME/passwd entry; keep config and saves
+    // An app UID has no meaningful $HOME/passwd entry; keep config
     // next to the game files in app-specific storage (AppStorage.configFile() in the launcher).
     userPath = os::android::GetDataRoot() / ".config" / USER_DIRECTORY;
 #elif defined(__linux__) || defined(__APPLE__)

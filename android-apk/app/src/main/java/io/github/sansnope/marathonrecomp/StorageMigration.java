@@ -2,19 +2,27 @@ package io.github.sansnope.marathonrecomp;
 
 // Ported from UnleashedRecomp-Android 0.6.1 (org.libsdl.app.StorageMigration).
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.UUID;
 
-/** Copy and verify an installation before switching roots. The original is retained. */
+/** Copy and verify an installation or its saves before switching folders. */
 final class StorageMigration {
+    private static final String[] SAVE_FILES = {"SonicNextSaveData.bin", "SonicNextAchievementData.bin"};
+
     interface Progress {
         boolean cancelled();
         void copied(long bytes);
@@ -39,6 +47,65 @@ final class StorageMigration {
         } finally {
             deleteTree(temporary);
         }
+    }
+
+    static boolean hasSaves(File directory) throws IOException {
+        boolean result = false;
+        for (String name : SAVE_FILES) {
+            result |= isSaveFile(new File(directory, name));
+        }
+        return result;
+    }
+
+    static void copySaves(File source, File target) throws IOException {
+        // Inspect both destinations before starting. Matching copies are allowed so an
+        // interrupted transfer can be retried without replacing either save file.
+        for (String name : SAVE_FILES) {
+            File original = new File(source, name);
+            isSaveFile(original);
+            matchesExistingSave(original, new File(target, name));
+        }
+        for (String name : SAVE_FILES) {
+            File original = new File(source, name);
+            File destination = new File(target, name);
+            if (!isSaveFile(original) || matchesExistingSave(original, destination)) continue;
+
+            // Stage beside the folder so a sync app watching it only sees finished saves.
+            Path temporary = Files.createTempFile(target.getParentFile().toPath(), ".marathon-save-", ".tmp");
+            try {
+                copyFile(original, temporary.toFile(), null);
+                if (!matchesExistingSave(original, destination)) {
+                    Files.move(temporary, destination.toPath());
+                }
+            } finally {
+                Files.deleteIfExists(temporary);
+            }
+        }
+    }
+
+    private static boolean isSaveFile(File file) throws IOException {
+        try {
+            if (Files.readAttributes(file.toPath(), BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS)
+                    .isRegularFile()) return true;
+            throw new LocalizedIOException("save_storage_invalid_file", file);
+        } catch (NoSuchFileException exception) {
+            return false;
+        }
+    }
+
+    private static boolean matchesExistingSave(File original, File destination) throws IOException {
+        if (!isSaveFile(destination)) return false;
+        if (isSaveFile(original) && Files.size(original.toPath()) == Files.size(destination.toPath())) {
+            try (InputStream source = new BufferedInputStream(Files.newInputStream(original.toPath()));
+                 InputStream target = new BufferedInputStream(Files.newInputStream(destination.toPath()))) {
+                int value;
+                while ((value = source.read()) != -1) {
+                    if (value != target.read()) break;
+                }
+                if (value == -1 && target.read() == -1) return true;
+            }
+        }
+        throw new LocalizedIOException("save_storage_conflict", destination);
     }
 
     private static void copyDirectory(File source, File target, String oldRoot, String newRoot,
@@ -78,7 +145,7 @@ final class StorageMigration {
                 checkCancelled(progress);
                 output.write(buffer, 0, count);
                 written.update(buffer, 0, count);
-                progress.copied(count);
+                if (progress != null) progress.copied(count);
             }
             output.getFD().sync();
         }
@@ -101,7 +168,7 @@ final class StorageMigration {
     }
 
     private static void checkCancelled(Progress progress) throws IOException {
-        if (progress.cancelled()) throw new LocalizedIOException("error_copy_cancelled", null);
+        if (progress != null && progress.cancelled()) throw new LocalizedIOException("error_copy_cancelled", null);
     }
 
     private static void deleteTree(File file) throws IOException {
