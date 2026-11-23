@@ -61,7 +61,7 @@ notepad android\local.paths.json
 Скрипт:
 
 1. инициализирует git submodule;
-2. применяет `android/patches/plume/0001-marathon-android.patch` к `thirdparty/plume` и `android/patches/xenonrecomp/0001-merge-rounding-overrides.patch` к `tools/XenonRecomp` (если инструменты хоста собраны до v0.2.0, после этого шага запустите `Build-HostTools.ps1` ещё раз);
+2. применяет патчи из `android/patches/` к Plume, XenonRecomp и XenosRecomp. Для Plume с патчем v0.3.2.2 применяется патч обновления. После перехода на v0.3.3 повторно запустите `Build-HostTools.ps1`, чтобы XenosRecomp генерировал варианты шейдеров для Android;
 3. скачивает zlib 1.3.2 (проверка SHA-512) для инструментов хоста;
 4. получает vcpkg на коммите `7087dcfb` и применяет официальный `thirdparty/ffmpeg-core/ffmpeg.patch`, который добавляет в FFmpeg декодер XMA от Xbox 360 (XMAFRAMES). На Windows вложенный патч может получить переводы строк CRLF; скрипт переводит его в LF и сверяет SHA-256.
 

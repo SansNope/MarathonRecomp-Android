@@ -103,6 +103,9 @@ add_custom_command(
 
 set(XENOS_RECOMP_ROOT "${MARATHON_RECOMP_TOOLS_ROOT}/XenosRecomp/XenosRecomp")
 set(XENOS_RECOMP_INCLUDE "${XENOS_RECOMP_ROOT}/shader_common.h")
+if (ANDROID)
+    set(XENOS_RECOMP_VARIANTS --android-variants)
+endif()
 
 # XenosRecomp is compiled with MARATHON_RECOMP in the root CMakeLists.txt, so that
 # a MARATHON_RECOMP_HOST_TOOLS_ONLY pass produces the same tool as a regular build.
@@ -111,7 +114,7 @@ add_custom_command(
     OUTPUT
         "${XENOS_RECOMP_OUT_FILE}"
     COMMAND
-        ${MARATHON_RECOMP_XENOS_RECOMP_COMMAND} "${XENOS_RECOMP_IN_DIR}" "${XENOS_RECOMP_OUT_FILE}" "${XENOS_RECOMP_INCLUDE}"
+        ${MARATHON_RECOMP_XENOS_RECOMP_COMMAND} "${XENOS_RECOMP_IN_DIR}" "${XENOS_RECOMP_OUT_FILE}" "${XENOS_RECOMP_INCLUDE}" ${XENOS_RECOMP_VARIANTS}
     DEPENDS
         ${MARATHON_RECOMP_XENOS_RECOMP_TOOL_DEPENDS}
         "${XENOS_RECOMP_IN_DIR}"

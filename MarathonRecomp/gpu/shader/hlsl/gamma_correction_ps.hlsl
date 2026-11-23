@@ -3,7 +3,7 @@
 #ifdef __spirv__
 
 #define g_Gamma vk::RawBufferLoad<float>(g_PushConstants.SharedConstants + 0)
-#define g_TextureDescriptorIndex vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + 4)
+#define g_TextureDescriptorIndex MARATHON_GUEST_DESCRIPTOR_INDEX(0, 4)
 
 #define g_ViewportOffset vk::RawBufferLoad<int2>(g_PushConstants.SharedConstants + 8)
 #define g_ViewportSize vk::RawBufferLoad<int2>(g_PushConstants.SharedConstants + 16)

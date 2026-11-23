@@ -97,7 +97,7 @@ float4 shaderMain(in Interpolators interpolators) : SV_Target
     
     if (g_PushConstants.Texture2DDescriptorIndex != 0)
     {
-        Texture2D<float4> texture = g_Texture2DDescriptorHeap[g_PushConstants.Texture2DDescriptorIndex & 0x7FFFFFFF];
+        Texture2D<float4> texture = g_Texture2DDescriptorHeap[MARATHON_IMGUI_TEXTURE];
         
         if ((g_PushConstants.Texture2DDescriptorIndex & 0x80000000) != 0)
         {

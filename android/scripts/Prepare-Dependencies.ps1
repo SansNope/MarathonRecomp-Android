@@ -1,7 +1,6 @@
 # Prepares everything the Android build needs besides the toolchain and your game files:
 #   1. git submodules (as pinned by this repository);
-#   2. the Android patches for thirdparty/plume (android/patches/plume) and tools/XenonRecomp
-#      (android/patches/xenonrecomp);
+#   2. the Android patches for Plume, XenonRecomp and XenosRecomp;
 #   3. zlib 1.3.2 source for the Windows host tools (out/deps/zlib-1.3.2);
 #   4. a vcpkg checkout with the FFmpeg XMAFRAMES patch (out/deps/vcpkg-ffmpeg), the same way
 #      sonicnext-dev/ffmpeg-core builds its desktop prebuilts.
@@ -38,29 +37,40 @@ if (-not $SkipSubmodules) {
     Invoke-Native git @('-C', $repo, 'submodule', 'update', '--init', '--recursive')
 }
 
-# 2. Plume: swap-chain pre-rotation, Android surface recreation, custom Vulkan loader hook.
-if (-not $SkipPlume) {
-    Write-Output '== thirdparty/plume Android patch'
-    $plume = Join-Path $repo 'thirdparty\plume'
-    $patch = Join-Path $repo 'android\patches\plume\0001-marathon-android.patch'
-    if (Test-Native git @('-C', $plume, 'apply', '--reverse', '--check', $patch)) {
+function Apply-SubmodulePatch([string]$submodule, [string]$patchPath, [string]$upgradePath = '') {
+    Write-Output "== $submodule Android patch"
+    $directory = Join-Path $repo $submodule
+    $patch = Join-Path $repo $patchPath
+    if (Test-Native git @('-C', $directory, 'apply', '--reverse', '--check', $patch)) {
         Write-Output 'already applied'
-    } else {
-        Invoke-Native git @('-C', $plume, 'apply', '--whitespace=nowarn', $patch)
-        Write-Output 'applied'
+        return
     }
 
-    # XenonRecomp: the merge_rounding_overrides option (MARATHON_RECOMP_PPC_MERGE_ROUNDING).
-    # Build-HostTools.ps1 has to be run again after this patch is applied for the first time.
-    Write-Output '== tools/XenonRecomp Android patch'
-    $xenon = Join-Path $repo 'tools\XenonRecomp'
-    $patch = Join-Path $repo 'android\patches\xenonrecomp\0001-merge-rounding-overrides.patch'
-    if (Test-Native git @('-C', $xenon, 'apply', '--reverse', '--check', $patch)) {
-        Write-Output 'already applied'
-    } else {
-        Invoke-Native git @('-C', $xenon, 'apply', '--whitespace=nowarn', $patch)
+    if (Test-Native git @('-C', $directory, 'apply', '--check', $patch)) {
+        Invoke-Native git @('-C', $directory, 'apply', '--whitespace=nowarn', $patch)
         Write-Output 'applied'
+        return
     }
+
+    if ($upgradePath) {
+        $upgrade = Join-Path $repo $upgradePath
+        if (Test-Native git @('-C', $directory, 'apply', '--check', $upgrade)) {
+            Invoke-Native git @('-C', $directory, 'apply', '--whitespace=nowarn', $upgrade)
+            if (Test-Native git @('-C', $directory, 'apply', '--reverse', '--check', $patch)) {
+                Write-Output 'upgraded from v0.3.2.2'
+                return
+            }
+        }
+    }
+
+    throw "Could not confirm the Android patch for $submodule. Compare the submodule with its pinned revision and patch."
+}
+
+# 2. Android patches in the pinned submodules.
+if (-not $SkipPlume) {
+    Apply-SubmodulePatch 'thirdparty\plume' 'android\patches\plume\0001-marathon-android.patch' 'android\patches\plume\0002-upgrade-v0.3.2.2.patch'
+    Apply-SubmodulePatch 'tools\XenonRecomp' 'android\patches\xenonrecomp\0001-merge-rounding-overrides.patch'
+    Apply-SubmodulePatch 'tools\XenosRecomp' 'android\patches\xenosrecomp\0001-android-shader-variants.patch'
 }
 
 # 3. zlib for u8extract (the host tools are built without vcpkg).

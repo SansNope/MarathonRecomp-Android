@@ -528,12 +528,24 @@ function(compile_shader FILE_PATH TARGET_NAME)
         )
         target_sources(MarathonRecomp PRIVATE ${HLSL_FILE_OUT_PATH}.dxil.h)
     endif()
+    file(GLOB HLSL_INCLUDES CONFIGURE_DEPENDS "${HLSL_SHADERS_IN_PATH}/*.hlsli")
+    list(APPEND HLSL_INCLUDES "${MARATHON_RECOMP_TOOLS_ROOT}/XenosRecomp/XenosRecomp/shader_common.h")
     add_custom_command(
         OUTPUT ${HLSL_FILE_OUT_PATH}.spirv.h
         COMMAND ${DIRECTX_DXC_TOOL} -T ${TARGET_NAME} -HV 2021 -all-resources-bound -spirv -fvk-use-dx-layout ${ARGN} -DMARATHON_RECOMP -E shaderMain -Fh ${HLSL_FILE_OUT_PATH}.spirv.h ${HLSL_FILE_PATH} -Vn g_${HLSL_NAME}_spirv
-        DEPENDS ${HLSL_FILE_PATH}
+        DEPENDS ${HLSL_FILE_PATH} ${HLSL_INCLUDES}
+        VERBATIM
     )
     target_sources(MarathonRecomp PRIVATE ${HLSL_FILE_OUT_PATH}.spirv.h)
+    if (ANDROID)
+        add_custom_command(
+            OUTPUT ${HLSL_FILE_OUT_PATH}.fixed.spirv.h
+            COMMAND ${DIRECTX_DXC_TOOL} -T ${TARGET_NAME} -HV 2021 -all-resources-bound -spirv -fvk-use-dx-layout ${ARGN} -DMARATHON_RECOMP -DMARATHON_FIXED_DESCRIPTORS -E shaderMain -Fh ${HLSL_FILE_OUT_PATH}.fixed.spirv.h ${HLSL_FILE_PATH} -Vn g_${HLSL_NAME}_fixed_spirv
+            DEPENDS ${HLSL_FILE_PATH} ${HLSL_INCLUDES}
+            VERBATIM
+        )
+        target_sources(MarathonRecomp PRIVATE ${HLSL_FILE_OUT_PATH}.fixed.spirv.h)
+    endif()
 endfunction()
 
 function(compile_vertex_shader FILE_PATH)

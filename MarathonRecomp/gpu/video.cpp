@@ -123,6 +123,24 @@
 #include "gpu/shader/hlsl/resolve_msaa_depth_2x.hlsl.spirv.h"
 #include "gpu/shader/hlsl/resolve_msaa_depth_4x.hlsl.spirv.h"
 #include "gpu/shader/hlsl/resolve_msaa_depth_8x.hlsl.spirv.h"
+#ifdef __ANDROID__
+#include "gpu/shader/hlsl/conditional_survey_ps.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/copy_vs.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/copy_color_ps.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/copy_depth_ps.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/enhanced_burnout_blur_vs.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/enhanced_burnout_blur_ps.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/movie_ps.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/gamma_correction_ps.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/imgui_ps.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/imgui_vs.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/resolve_msaa_color_2x.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/resolve_msaa_color_4x.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/resolve_msaa_color_8x.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/resolve_msaa_depth_2x.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/resolve_msaa_depth_4x.hlsl.fixed.spirv.h"
+#include "gpu/shader/hlsl/resolve_msaa_depth_8x.hlsl.fixed.spirv.h"
+#endif
 
 #ifdef _WIN32
 extern "C"
@@ -775,6 +793,12 @@ static std::unique_ptr<RenderPipeline> g_gammaCorrectionPipeline;
 
 static std::unique_ptr<RenderDescriptorSet> g_textureDescriptorSet;
 static std::unique_ptr<RenderDescriptorSet> g_samplerDescriptorSet;
+static constexpr uint32_t FIXED_DESCRIPTOR_SLOTS = 16;
+static bool g_useFixedDescriptors = false;
+static bool g_useSoftwareClip = false;
+static bool g_stageGuestBuffers = false;
+static bool g_hasConditionalSurvey = true;
+static bool g_skipSurveyDraws = false;
 
 static constexpr uint32_t CONDITIONAL_SURVEY_MAX = 64;
 static std::unique_ptr<RenderBuffer> g_conditionalSurveyBuffer;
@@ -826,6 +850,34 @@ static std::unique_ptr<RenderTextureView> g_blankTextureViews[TEXTURE_DESCRIPTOR
 
 static TextureDescriptorAllocator g_textureDescriptorAllocator;
 
+struct FixedTextureDescriptor
+{
+    const RenderTexture* texture = nullptr;
+    const RenderTextureView* view = nullptr;
+    RenderTextureLayout layout{};
+    uint64_t revision = 0;
+};
+
+static std::mutex g_fixedTextureMutex;
+static std::vector<FixedTextureDescriptor> g_fixedTextureDescriptors;
+static uint64_t g_fixedTextureRevision = 0;
+
+static void SetTextureDescriptor(uint32_t index, const RenderTexture* texture, RenderTextureLayout layout,
+    const RenderTextureView* view = nullptr)
+{
+    if (!g_useFixedDescriptors)
+    {
+        g_textureDescriptorSet->setTexture(index, texture, layout, view);
+        return;
+    }
+
+    std::lock_guard lock(g_fixedTextureMutex);
+    if (index >= g_fixedTextureDescriptors.size())
+        g_fixedTextureDescriptors.resize(index + 1);
+
+    g_fixedTextureDescriptors[index] = { texture, view, layout, ++g_fixedTextureRevision };
+}
+
 // Marathon's shaders read Xenos "3D" texture fetches through the Texture2DArray heap (set 1), and
 // the game binds ordinary 2D textures there. Reading a 2D view through an arrayed image type is
 // invalid in Vulkan: Turnip tolerates it, Mali returns nothing (untextured world). Every 2D texture
@@ -839,7 +891,7 @@ static void CreateArrayTextureView(GuestTexture& texture, RenderTextureViewDesc 
     viewDesc.dimension = RenderTextureViewDimension::TEXTURE_2D_ARRAY;
     texture.arrayTextureView = texture.texture->createTextureView(viewDesc);
     texture.arrayDescriptorIndex = g_textureDescriptorAllocator.allocate();
-    g_textureDescriptorSet->setTexture(texture.arrayDescriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ, texture.arrayTextureView.get());
+    SetTextureDescriptor(texture.arrayDescriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ, texture.arrayTextureView.get());
 #else
     (void)texture;
     (void)viewDesc;
@@ -850,7 +902,7 @@ static void FreeArrayTextureView(GuestTexture& texture)
 {
     if (texture.arrayDescriptorIndex != NULL)
     {
-        g_textureDescriptorSet->setTexture(texture.arrayDescriptorIndex, nullptr, {});
+        SetTextureDescriptor(texture.arrayDescriptorIndex, nullptr, {});
         g_textureDescriptorAllocator.free(texture.arrayDescriptorIndex);
         texture.arrayDescriptorIndex = NULL;
     }
@@ -1201,7 +1253,7 @@ static void ReleaseSurfaceVariant(SurfaceVariant* variant)
     if (--variant->refCount != 0)
         return;
 
-    g_textureDescriptorSet->setTexture(variant->descriptorIndex, nullptr, {});
+    SetTextureDescriptor(variant->descriptorIndex, nullptr, {});
     g_textureDescriptorAllocator.free(variant->descriptorIndex);
 
     for (auto& other : g_surfaceVariants)
@@ -1244,13 +1296,13 @@ static void DestructTempResources()
                 g_userHeap.Free(texture->mappedMemory);
             }
 
-            g_textureDescriptorSet->setTexture(texture->descriptorIndex, nullptr, {});
+            SetTextureDescriptor(texture->descriptorIndex, nullptr, {});
             g_textureDescriptorAllocator.free(texture->descriptorIndex);
             FreeArrayTextureView(*texture);
 
             if (texture->patchedTexture != nullptr)
             {
-                g_textureDescriptorSet->setTexture(texture->patchedTexture->descriptorIndex, nullptr, {});
+                SetTextureDescriptor(texture->patchedTexture->descriptorIndex, nullptr, {});
                 g_textureDescriptorAllocator.free(texture->patchedTexture->descriptorIndex);
                 FreeArrayTextureView(*texture->patchedTexture);
             }
@@ -1301,7 +1353,7 @@ static void DestructTempResources()
             }
             else if (surface->descriptorIndex != NULL)
             {
-                g_textureDescriptorSet->setTexture(surface->descriptorIndex, nullptr, {});
+                SetTextureDescriptor(surface->descriptorIndex, nullptr, {});
                 g_textureDescriptorAllocator.free(surface->descriptorIndex);
             }
 
@@ -1426,8 +1478,7 @@ enum class RenderCommandType
     SetRenderState,
     DestructResource,
     UnlockTextureRect,
-    UnlockBuffer16,
-    UnlockBuffer32,
+    UnlockBuffer,
     DrawImGui,
     ExecuteCommandList,
     BeginCommandList,
@@ -1475,11 +1526,13 @@ struct RenderCommand
         struct
         {
             GuestTexture* texture;
+            uint8_t* data;
         } unlockTextureRect;
 
         struct
         {
             GuestBuffer* buffer;
+            RenderBuffer* upload;
         } unlockBuffer;
 
         struct 
@@ -1632,6 +1685,29 @@ struct RenderCommand
 };
 
 static moodycamel::BlockingConcurrentQueue<RenderCommand> g_renderQueue;
+static moodycamel::ProducerToken g_orderedRenderProducer(g_renderQueue);
+static std::mutex g_renderProducerMutex;
+
+static bool EnqueueRenderCommand(const RenderCommand& cmd)
+{
+    if (!g_stageGuestBuffers)
+        return g_renderQueue.enqueue(cmd);
+
+    // Work submitted from a guest worker must precede draws enqueued after that worker finishes.
+    std::lock_guard lock(g_renderProducerMutex);
+    return g_renderQueue.enqueue(g_orderedRenderProducer, cmd);
+}
+
+static void EnqueueRenderCommands(const RenderCommand* commands, size_t count)
+{
+    if (!g_stageGuestBuffers)
+        g_renderQueue.enqueue_bulk(commands, count);
+    else
+    {
+        std::lock_guard lock(g_renderProducerMutex);
+        g_renderQueue.enqueue_bulk(g_orderedRenderProducer, commands, count);
+    }
+}
 
 template<GuestRenderState TType>
 static void SetRenderState(GuestDevice* device, uint32_t value)
@@ -1640,7 +1716,7 @@ static void SetRenderState(GuestDevice* device, uint32_t value)
     cmd.type = RenderCommandType::SetRenderState;
     cmd.setRenderState.type = TType;
     cmd.setRenderState.value = value;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void SetRenderStateUnimplemented(GuestDevice* device, uint32_t value)
@@ -2040,6 +2116,12 @@ static std::unique_ptr<GuestShader> g_conditionalSurveyPSShader;
         "shaderMain", \
         (g_backend == Backend::VULKAN) ? RenderShaderFormat::SPIRV : RenderShaderFormat::METAL)
 
+#elif defined(__ANDROID__)
+
+#define CREATE_SHADER(NAME) \
+    (g_useFixedDescriptors ? CreateSpirvShader(g_##NAME##_fixed_spirv, sizeof(g_##NAME##_fixed_spirv)) : \
+                             CreateSpirvShader(g_##NAME##_spirv, sizeof(g_##NAME##_spirv)))
+
 #else
 
 #define CREATE_SHADER(NAME) \
@@ -2098,7 +2180,104 @@ static void BuildSamplerDescriptorSet(RenderDescriptorSetBuilder& builder)
     {
         builder.addSampler(0, g_samplerDescriptorSize);
     }
-    builder.end(true, g_samplerDescriptorSize);
+    builder.end(!g_useFixedDescriptors, g_useFixedDescriptors ? 0 : g_samplerDescriptorSize);
+}
+
+static RenderDescriptorSetBuilder g_fixedTextureSetBuilder;
+static RenderDescriptorSetBuilder g_fixedSamplerSetBuilder;
+static std::vector<const RenderSampler*> g_fixedSamplers;
+
+using FixedDescriptorKey = std::array<uint64_t, FIXED_DESCRIPTOR_SLOTS>;
+
+struct FixedDescriptorKeyHash
+{
+    uint64_t operator()(const FixedDescriptorKey& key) const
+    {
+        return XXH3_64bits(key.data(), sizeof(key));
+    }
+};
+
+struct FixedDescriptorSets
+{
+    std::vector<std::unique_ptr<RenderDescriptorSet>> sets;
+    ankerl::unordered_dense::map<FixedDescriptorKey, RenderDescriptorSet*, FixedDescriptorKeyHash> bindings;
+    size_t next = 0;
+
+    RenderDescriptorSet* get(const FixedDescriptorKey& key, const RenderDescriptorSetBuilder& builder,
+        const auto& writeDescriptors)
+    {
+        if (auto existing = bindings.find(key); existing != bindings.end())
+            return existing->second;
+
+        if (next == sets.size())
+            sets.push_back(builder.create(g_device.get()));
+
+        auto* set = sets[next++].get();
+        writeDescriptors(*set);
+        bindings.emplace(key, set);
+        return set;
+    }
+
+    void reset()
+    {
+        bindings.clear();
+        next = 0;
+    }
+};
+
+static FixedDescriptorSets g_fixedTextureSets[NUM_FRAMES];
+static FixedDescriptorSets g_fixedSamplerSets[NUM_FRAMES];
+
+static RenderDescriptorSet* GetFixedTextureSet(const uint32_t* indices, uint32_t blank, bool single = false)
+{
+    FixedDescriptorKey key;
+    std::array<FixedTextureDescriptor, FIXED_DESCRIPTOR_SLOTS> descriptors;
+    {
+        std::lock_guard lock(g_fixedTextureMutex);
+        for (uint32_t slot = 0; slot < FIXED_DESCRIPTOR_SLOTS; ++slot)
+        {
+            const uint32_t index = indices[single ? 0 : slot];
+            const auto& descriptor = index < g_fixedTextureDescriptors.size() &&
+                g_fixedTextureDescriptors[index].texture != nullptr
+                ? g_fixedTextureDescriptors[index] : g_fixedTextureDescriptors[blank];
+
+            descriptors[slot] = descriptor;
+            key[slot] = descriptor.revision;
+        }
+    }
+
+    return g_fixedTextureSets[g_frame].get(key, g_fixedTextureSetBuilder, [&](RenderDescriptorSet& set)
+    {
+        for (uint32_t slot = 0; slot < FIXED_DESCRIPTOR_SLOTS; ++slot)
+        {
+            const auto& descriptor = descriptors[slot];
+            set.setTexture(slot, descriptor.texture, descriptor.layout, descriptor.view);
+        }
+    });
+}
+
+static void BindFixedTexture(RenderCommandList& list, uint32_t index)
+{
+    list.setGraphicsDescriptorSet(GetFixedTextureSet(&index, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D, true), 0);
+}
+
+static RenderDescriptorSet* GetFixedSamplerSet(const uint32_t* indices)
+{
+    FixedDescriptorKey key{};
+    if (indices != nullptr)
+        std::copy_n(indices, FIXED_DESCRIPTOR_SLOTS, key.begin());
+
+    return g_fixedSamplerSets[g_frame].get(key, g_fixedSamplerSetBuilder, [&](RenderDescriptorSet& set)
+    {
+        if (g_compactDescriptorSets)
+        {
+            const RenderBufferStructuredView surveyView(sizeof(uint32_t));
+            set.setBuffer(0, g_conditionalSurveyBuffer.get(), 0, &surveyView);
+        }
+
+        for (uint32_t slot = 0; slot < FIXED_DESCRIPTOR_SLOTS; ++slot)
+            set.setSampler(slot + g_samplerSlotOffset, g_fixedSamplers[key[slot]]);
+    });
 }
 
 // Rewrites the descriptor decorations of a SPIR-V module for the compact layout: sampler arrays
@@ -2485,7 +2664,7 @@ static void CreateImGuiBackend()
     g_imFontTexture->textureView = g_imFontTexture->texture->createTextureView(textureViewDesc);
 
     g_imFontTexture->descriptorIndex = g_textureDescriptorAllocator.allocate();
-    g_textureDescriptorSet->setTexture(g_imFontTexture->descriptorIndex, g_imFontTexture->texture, RenderTextureLayout::SHADER_READ, g_imFontTexture->textureView.get());
+    SetTextureDescriptor(g_imFontTexture->descriptorIndex, g_imFontTexture->texture, RenderTextureLayout::SHADER_READ, g_imFontTexture->textureView.get());
 #endif
 
     io.Fonts->SetTexID(g_imFontTexture.get());
@@ -2496,7 +2675,7 @@ static void CreateImGuiBackend()
     RenderDescriptorSetBuilder descriptorSetBuilder;
     descriptorSetBuilder.begin();
     descriptorSetBuilder.addTexture(0, g_textureDescriptorSize);
-    descriptorSetBuilder.end(true, g_textureDescriptorSize);
+    descriptorSetBuilder.end(!g_useFixedDescriptors, g_useFixedDescriptors ? 0 : g_textureDescriptorSize);
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
 
     BuildSamplerDescriptorSet(descriptorSetBuilder);
@@ -2720,7 +2899,7 @@ static void BeginCommandList()
             Video::WaitForGPU(); // Fine to wait for GPU, this'll only happen during resize.
 
             g_intermediaryBackBufferTexture = g_device->createTexture(RenderTextureDesc::Texture2D(width, height, 1, BACKBUFFER_FORMAT, RenderTextureFlag::RENDER_TARGET));
-            g_textureDescriptorSet->setTexture(g_intermediaryBackBufferTextureDescriptorIndex, g_intermediaryBackBufferTexture.get(), RenderTextureLayout::SHADER_READ);
+            SetTextureDescriptor(g_intermediaryBackBufferTextureDescriptorIndex, g_intermediaryBackBufferTexture.get(), RenderTextureLayout::SHADER_READ);
 
             g_intermediaryBackBufferTextureWidth = width;
             g_intermediaryBackBufferTextureHeight = height;
@@ -2768,10 +2947,13 @@ static void BeginCommandList()
     }
 #endif
     commandList->setGraphicsPipelineLayout(g_pipelineLayout.get());
-    commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
-    commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 1);
-    commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 2);
-    commandList->setGraphicsDescriptorSet(g_samplerDescriptorSet.get(), 3);
+    if (!g_useFixedDescriptors)
+    {
+        commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
+        commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 1);
+        commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 2);
+        commandList->setGraphicsDescriptorSet(g_samplerDescriptorSet.get(), 3);
+    }
     if (g_conditionalSurveyDescriptorSet != nullptr)
         commandList->setGraphicsDescriptorSet(g_conditionalSurveyDescriptorSet.get(), 4);
 
@@ -3174,8 +3356,18 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         std::error_code error;
         const bool forced = std::filesystem::exists(os::android::GetDataRoot() / "descriptor_sets_compact.enabled", error);
         const bool limited = g_capabilities.maxBoundDescriptorSets != 0 && g_capabilities.maxBoundDescriptorSets < 5;
-        g_compactDescriptorSets = (g_backend == Backend::VULKAN) && (forced || limited);
+        const bool forceFixed = std::filesystem::exists(os::android::GetDataRoot() / "fixed_descriptors.enabled", error);
+        g_useFixedDescriptors = g_backend == Backend::VULKAN && (forceFixed || !g_capabilities.descriptorIndexing ||
+            (g_capabilities.maxSampledImageDescriptors != 0 && g_capabilities.maxSampledImageDescriptors < 3 * TEXTURE_DESCRIPTOR_SIZE) ||
+            (g_capabilities.maxSamplerDescriptors != 0 && g_capabilities.maxSamplerDescriptors < SAMPLER_DESCRIPTOR_SIZE));
+        g_compactDescriptorSets = g_backend == Backend::VULKAN && (forced || limited || g_useFixedDescriptors);
         g_samplerSlotOffset = g_compactDescriptorSets ? 1 : 0;
+
+        if (g_useFixedDescriptors)
+        {
+            LOGF("GPU descriptor mode: fixed ({} texture slots per view type, {} sampler slots).",
+                FIXED_DESCRIPTOR_SLOTS, FIXED_DESCRIPTOR_SLOTS);
+        }
 
         // <game root>/vertex_locations_compact.enabled forces the renumbering on GPUs with enough
         // vertex attributes (Adreno) to test it without a Mali device.
@@ -3187,11 +3379,26 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         const bool forcedClip = std::filesystem::exists(os::android::GetDataRoot() / "clip_distance_strip.enabled", error);
         g_stripClipDistance = (g_backend == Backend::VULKAN) && (forcedClip || !g_capabilities.shaderClipDistance);
 
-        if (g_stripClipDistance)
-        {
-            LOGF_WARNING("ClipDistance removed from shaders ({}); user clip planes are disabled.",
-                forcedClip ? "forced by clip_distance_strip.enabled" : "the device does not support shaderClipDistance");
-        }
+        // The software variant uses TEXCOORD16 after the existing 18 interpolators.
+        constexpr uint32_t requiredVaryingComponents = 19 * 4;
+        g_useSoftwareClip = g_stripClipDistance && !forcedClip &&
+            g_capabilities.maxVertexOutputComponents >= requiredVaryingComponents &&
+            g_capabilities.maxFragmentInputComponents >= requiredVaryingComponents;
+        if (g_useSoftwareClip)
+            LOG("User clip planes use fragment-shader clipping.");
+        else if (g_stripClipDistance)
+            LOG_WARNING("ClipDistance removed from shaders; user clip planes are disabled.");
+
+        constexpr uint32_t armVendorId = 0x13B5;
+        g_stageGuestBuffers = g_backend == Backend::VULKAN &&
+            (uint32_t(g_device->getDescription().vendor) == armVendorId ||
+             std::filesystem::exists(os::android::GetDataRoot() / "staged_guest_buffers.enabled", error));
+        if (g_stageGuestBuffers)
+            LOG("Guest vertex/index updates are ordered on the render queue.");
+
+        g_hasConditionalSurvey = g_backend != Backend::VULKAN || g_capabilities.fragmentStoresAndAtomics;
+        if (!g_hasConditionalSurvey)
+            LOG_WARNING("Conditional survey disabled: this device has no fragment shader atomics.");
 
         if (g_compactVertexLocations)
         {
@@ -3244,6 +3451,18 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     {
         LOGF_WARNING("Descriptor set sizes clamped to device limits: {} textures, {} samplers.",
             g_textureDescriptorSize, g_samplerDescriptorSize);
+    }
+
+    if (g_useFixedDescriptors)
+    {
+        if (g_capabilities.maxBoundDescriptorSets < 4 ||
+            g_textureDescriptorSize < 3 * FIXED_DESCRIPTOR_SLOTS || g_samplerDescriptorSize < FIXED_DESCRIPTOR_SLOTS)
+        {
+            LOG_ERROR("GPU limits do not fit the fixed Vulkan descriptor layouts.");
+            return false;
+        }
+        g_textureDescriptorSize = FIXED_DESCRIPTOR_SLOTS;
+        g_samplerDescriptorSize = FIXED_DESCRIPTOR_SLOTS;
     }
 
     LoadEmbeddedResources();
@@ -3424,10 +3643,17 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     RenderDescriptorSetBuilder descriptorSetBuilder;
     descriptorSetBuilder.begin();
     descriptorSetBuilder.addTexture(0, g_textureDescriptorSize);
-    descriptorSetBuilder.end(true, g_textureDescriptorSize);
+    descriptorSetBuilder.end(!g_useFixedDescriptors, g_useFixedDescriptors ? 0 : g_textureDescriptorSize);
     
     LOGF("Init: texture descriptor set ({} textures).", g_textureDescriptorSize);
-    g_textureDescriptorSet = descriptorSetBuilder.create(g_device.get());
+    if (g_useFixedDescriptors)
+    {
+        g_fixedTextureSetBuilder.begin();
+        g_fixedTextureSetBuilder.addTexture(0, FIXED_DESCRIPTOR_SLOTS);
+        g_fixedTextureSetBuilder.end();
+    }
+    else
+        g_textureDescriptorSet = descriptorSetBuilder.create(g_device.get());
     LOG("Init: placeholder textures.");
     
     for (size_t i = 0; i < TEXTURE_DESCRIPTOR_NULL_COUNT; i++)
@@ -3480,7 +3706,7 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         texture = g_device->createTexture(desc);
         textureView = texture->createTextureView(viewDesc);
 
-        g_textureDescriptorSet->setTexture(i, texture.get(), RenderTextureLayout::SHADER_READ, textureView.get());
+        SetTextureDescriptor(i, texture.get(), RenderTextureLayout::SHADER_READ, textureView.get());
     }
 
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
@@ -3490,11 +3716,17 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     BuildSamplerDescriptorSet(descriptorSetBuilder);
     
     LOGF("Init: sampler descriptor set ({} samplers).", g_samplerDescriptorSize);
-    g_samplerDescriptorSet = descriptorSetBuilder.create(g_device.get());
+    if (g_useFixedDescriptors)
+        BuildSamplerDescriptorSet(g_fixedSamplerSetBuilder);
+    else
+        g_samplerDescriptorSet = descriptorSetBuilder.create(g_device.get());
     auto& [descriptorIndex, sampler] = g_samplerStates[XXH3_64bits(&g_samplerDescs[0], sizeof(RenderSamplerDesc))];
     descriptorIndex = 1;
     sampler = g_device->createSampler(g_samplerDescs[0]);
-    g_samplerDescriptorSet->setSampler(g_samplerSlotOffset, sampler.get());
+    if (g_useFixedDescriptors)
+        g_fixedSamplers.push_back(sampler.get());
+    else
+        g_samplerDescriptorSet->setSampler(g_samplerSlotOffset, sampler.get());
 
     pipelineLayoutBuilder.addDescriptorSet(descriptorSetBuilder);
 
@@ -3509,7 +3741,8 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
 
     if (g_compactDescriptorSets)
     {
-        g_samplerDescriptorSet->setBuffer(0, g_conditionalSurveyBuffer.get(), 0, &conditionalSurveyStructuredView);
+        if (!g_useFixedDescriptors)
+            g_samplerDescriptorSet->setBuffer(0, g_conditionalSurveyBuffer.get(), 0, &conditionalSurveyStructuredView);
     }
     else
     {
@@ -3591,8 +3824,11 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     g_enhancedBurnoutBlurPSShader = CREATE_SHADER(enhanced_burnout_blur_ps);
     g_MoviePSShader = CREATE_SHADER(movie_ps);
 
-    g_conditionalSurveyPSShader = std::make_unique<GuestShader>(ResourceType::PixelShader);
-    g_conditionalSurveyPSShader->shader = CREATE_SHADER(conditional_survey_ps);
+    if (g_hasConditionalSurvey)
+    {
+        g_conditionalSurveyPSShader = std::make_unique<GuestShader>(ResourceType::PixelShader);
+        g_conditionalSurveyPSShader->shader = CREATE_SHADER(conditional_survey_ps);
+    }
 
     CreateImGuiBackend();
 
@@ -3607,6 +3843,15 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     desc.renderTargetCount = 1;
     g_gammaCorrectionPipeline = g_device->createGraphicsPipeline(desc);
     CheckBuiltInPipeline(g_gammaCorrectionPipeline.get(), "gamma correction");
+#ifdef __ANDROID__
+    const auto validPipeline = [](const auto& pipeline) { return pipeline && pipeline->isValid(); };
+    if (!validPipeline(g_copyDepthPipeline) || !validPipeline(g_imPipeline) ||
+        !validPipeline(g_imAdditivePipeline) || !validPipeline(g_gammaCorrectionPipeline))
+    {
+        LOG_ERROR("Required Vulkan pipelines failed; see the errors above.");
+        return false;
+    }
+#endif
 
     // NOTE: We initially allocate this on host memory to make the installer work, even if the 4 GB memory allocation fails.
     g_backBufferHolder = std::make_unique<GuestSurface>(ResourceType::RenderTarget);
@@ -3726,7 +3971,7 @@ static void DestructResource(GuestResource* resource)
     RenderCommand cmd;
     cmd.type = RenderCommandType::DestructResource;
     cmd.destructResource.resource = resource;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ReleaseResource(GuestResource* resource)
@@ -3743,15 +3988,29 @@ static void ProcDestructResource(const RenderCommand& cmd)
     g_tempResources[g_renderFrame].push_back(args.resource);
 }
 
-static uint32_t ComputeTexturePitch(GuestTexture* texture)
+static RenderFormat GetTextureUploadFormat(const GuestTexture& texture)
 {
-    return (texture->width * RenderFormatSize(texture->format) + PITCH_ALIGNMENT - 1) & ~(PITCH_ALIGNMENT - 1);
+    return texture.uploadFormat == RenderFormat::UNKNOWN ? texture.format : texture.uploadFormat;
+}
+
+static uint32_t ComputeTexturePitch(uint32_t width, RenderFormat format)
+{
+    const uint32_t block = RenderFormatBlockWidth(format);
+    const uint32_t rowBytes = ((width + block - 1) / block) * RenderFormatSize(format);
+    return (rowBytes + PITCH_ALIGNMENT - 1) & ~(PITCH_ALIGNMENT - 1);
+}
+
+static uint32_t ComputeTextureRows(uint32_t height, RenderFormat format)
+{
+    const uint32_t block = RenderFormatBlockWidth(format);
+    return (height + block - 1) / block;
 }
 
 static void LockTextureRect(GuestTexture* texture, uint32_t, GuestLockedRect* lockedRect) 
 {
-    uint32_t pitch = ComputeTexturePitch(texture);
-    uint32_t slicePitch = pitch * texture->height;
+    const RenderFormat format = GetTextureUploadFormat(*texture);
+    const uint32_t pitch = ComputeTexturePitch(texture->width, format);
+    const uint32_t slicePitch = pitch * ComputeTextureRows(texture->height, format);
 
     if (texture->mappedMemory == nullptr)
         texture->mappedMemory = g_userHeap.AllocPhysical(slicePitch, 0x10);
@@ -3764,28 +4023,102 @@ static void UnlockTextureRect(GuestTexture* texture)
 {
     assert(std::this_thread::get_id() == g_presentThreadId);
 
+    if (texture->mappedMemory == nullptr)
+        return;
+
+    const RenderFormat format = GetTextureUploadFormat(*texture);
+    const uint32_t byteCount = ComputeTexturePitch(texture->width, format) * ComputeTextureRows(texture->height, format);
+    auto snapshot = std::make_unique_for_overwrite<uint8_t[]>(byteCount);
+    memcpy(snapshot.get(), texture->mappedMemory, byteCount);
+
     RenderCommand cmd;
     cmd.type = RenderCommandType::UnlockTextureRect;
     cmd.unlockTextureRect.texture = texture;
-    g_renderQueue.enqueue(cmd);
+    cmd.unlockTextureRect.data = snapshot.get();
+    if (EnqueueRenderCommand(cmd))
+        snapshot.release();
 }
 
 static void ProcUnlockTextureRect(const RenderCommand& cmd)
 {
     const auto& args = cmd.unlockTextureRect;
 
-    AddBarrier(args.texture, RenderTextureLayout::COPY_DEST);
+    const std::unique_ptr<uint8_t[]> snapshot(args.data);
+    auto& texture = *args.texture;
+
+    const uint32_t pitch = ComputeTexturePitch(texture.width, texture.format);
+    const uint32_t slicePitch = pitch * ComputeTextureRows(texture.height, texture.format);
+    std::unique_ptr<RenderBuffer> largeUpload;
+    UploadAllocation allocation;
+    if (slicePitch <= UploadBuffer::SIZE)
+    {
+        allocation = g_uploadAllocators[g_frame].allocate(slicePitch, PLACEMENT_ALIGNMENT);
+    }
+    else
+    {
+        largeUpload = g_device->createBuffer(RenderBufferDesc::UploadBuffer(slicePitch));
+        auto* bytes = largeUpload != nullptr ? static_cast<uint8_t*>(largeUpload->map()) : nullptr;
+        if (bytes == nullptr)
+        {
+            LOG_ERROR("Could not allocate the staging buffer for a dynamic texture.");
+            return;
+        }
+        allocation = { largeUpload.get(), 0, bytes, 0 };
+    }
+
+#ifdef __ANDROID__
+    const RenderFormat sourceFormat = GetTextureUploadFormat(texture);
+    if (sourceFormat != texture.format)
+    {
+        const uint32_t sourcePitch = ComputeTexturePitch(texture.width, sourceFormat);
+        const uint32_t blockBytes = RenderFormatSize(sourceFormat);
+        auto decode = sourceFormat == RenderFormat::BC1_UNORM ? bcdec_bc1 : bcdec_bc3;
+        for (uint32_t y = 0; y < texture.height; y += 4)
+        {
+            for (uint32_t x = 0; x < texture.width; x += 4)
+            {
+                alignas(16) uint8_t pixels[4][16];
+                decode(snapshot.get() + (y / 4) * sourcePitch + (x / 4) * blockBytes, pixels, sizeof(pixels[0]));
+                for (uint32_t row = 0; row < std::min(4u, texture.height - y); ++row)
+                {
+                    memcpy(allocation.memory + (y + row) * pitch + x * 4, pixels[row],
+                        std::min(4u, texture.width - x) * 4);
+                }
+            }
+        }
+    }
+    else
+#endif
+    {
+        memcpy(allocation.memory, snapshot.get(), slicePitch);
+    }
+
+    auto& commandList = g_commandLists[g_frame];
+    if (GetLayoutRef(&texture) == RenderTextureLayout::COPY_DEST)
+    {
+        // Multiple writes to the same image can be queued without a draw in between.
+        commandList->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(texture.texture, RenderTextureLayout::COPY_DEST));
+    }
+    else
+    {
+        AddBarrier(&texture, RenderTextureLayout::COPY_DEST);
+        FlushBarriers();
+    }
+
+    if (largeUpload)
+    {
+        largeUpload->unmap();
+        g_tempBuffers[g_frame].push_back(std::move(largeUpload));
+    }
+
+    const uint32_t rowWidth = pitch / RenderFormatSize(texture.format) * RenderFormatBlockWidth(texture.format);
+    commandList->copyTextureRegion(
+        RenderTextureCopyLocation::Subresource(texture.texture, 0),
+        RenderTextureCopyLocation::PlacedFootprint(allocation.buffer, texture.format, texture.width, texture.height, 1, rowWidth, allocation.offset));
+
+    // The game can draw with a texture that was already bound when it was updated.
+    AddBarrier(&texture, RenderTextureLayout::SHADER_READ);
     FlushBarriers();
-
-    uint32_t pitch = ComputeTexturePitch(args.texture);
-    uint32_t slicePitch = pitch * args.texture->height;
-
-    auto allocation = g_uploadAllocators[g_frame].allocate(slicePitch, PLACEMENT_ALIGNMENT);
-    memcpy(allocation.memory, args.texture->mappedMemory, slicePitch);
-
-    g_commandLists[g_frame]->copyTextureRegion(
-        RenderTextureCopyLocation::Subresource(args.texture->texture, 0),
-        RenderTextureCopyLocation::PlacedFootprint(allocation.buffer, args.texture->format, args.texture->width, args.texture->height, 1, pitch / RenderFormatSize(args.texture->format), allocation.offset));
 }
 
 static void* LockBuffer(GuestBuffer* buffer, uint32_t flags)
@@ -3806,70 +4139,66 @@ static void* LockVertexBuffer(GuestBuffer* buffer, uint32_t, uint32_t, uint32_t 
 static std::atomic<uint32_t> g_bufferUploadCount = 0;
 
 template<typename T>
-static void UnlockBuffer(GuestBuffer* buffer, bool useCopyQueue)
+static void UnlockBuffer(GuestBuffer* buffer)
 {
-    auto copyBuffer = [&](T* dest)
-        {
-            auto src = reinterpret_cast<const T*>(buffer->mappedMemory);
+    if (buffer->lockedReadOnly || buffer->dataSize == 0)
+        return;
 
-            for (size_t i = 0; i < buffer->dataSize; i += sizeof(T))
-            {
-                *dest = ByteSwap(*src);
-                ++dest;
-                ++src;
-            }
-        };
+    const bool direct = g_capabilities.gpuUploadHeap && !g_stageGuestBuffers;
+    std::unique_ptr<RenderBuffer> upload;
+    if (!direct)
+        upload = g_device->createBuffer(RenderBufferDesc::UploadBuffer(buffer->dataSize));
 
-    if (useCopyQueue && g_capabilities.gpuUploadHeap)
+    auto* target = direct ? buffer->buffer.get() : upload.get();
+    auto* dst = target != nullptr ? static_cast<T*>(target->map()) : nullptr;
+    if (dst == nullptr)
     {
-        copyBuffer(reinterpret_cast<T*>(buffer->buffer->map()));
-        buffer->buffer->unmap();
+        LOG_ERROR("Failed to map guest buffer upload.");
+        return;
     }
-    else
+
+    auto* src = static_cast<const T*>(buffer->mappedMemory);
+    for (size_t i = 0; i < buffer->dataSize / sizeof(T); ++i)
+        dst[i] = ByteSwap(src[i]);
+    const size_t packedBytes = buffer->dataSize / sizeof(T) * sizeof(T);
+    if (packedBytes < buffer->dataSize)
     {
-        auto uploadBuffer = g_device->createBuffer(RenderBufferDesc::UploadBuffer(buffer->dataSize));
-        copyBuffer(reinterpret_cast<T*>(uploadBuffer->map()));
-        uploadBuffer->unmap();
+        memcpy(reinterpret_cast<uint8_t*>(dst) + packedBytes,
+            reinterpret_cast<const uint8_t*>(src) + packedBytes, buffer->dataSize - packedBytes);
+    }
+    target->unmap();
 
-        if (useCopyQueue)
+    if (g_stageGuestBuffers)
+    {
+        RenderCommand cmd;
+        cmd.type = RenderCommandType::UnlockBuffer;
+        cmd.unlockBuffer.buffer = buffer;
+        cmd.unlockBuffer.upload = upload.get();
+        if (EnqueueRenderCommand(cmd))
+            upload.release();
+    }
+    else if (upload)
+    {
+        ExecuteCopyCommandList([&]
         {
-            ExecuteCopyCommandList([&]
-                {
-                    g_copyCommandList->copyBufferRegion(buffer->buffer->at(0), uploadBuffer->at(0), buffer->dataSize);
-                });
-        }
-        else
-        {
-            auto& commandList = g_commandLists[g_frame];
-
-            commandList->barriers(RenderBarrierStage::COPY, RenderBufferBarrier(buffer->buffer.get(), RenderBufferAccess::WRITE));
-            commandList->copyBufferRegion(buffer->buffer->at(0), uploadBuffer->at(0), buffer->dataSize);
-            commandList->barriers(RenderBarrierStage::GRAPHICS, RenderBufferBarrier(buffer->buffer.get(), RenderBufferAccess::READ));
-
-            g_tempBuffers[g_frame].emplace_back(std::move(uploadBuffer));
-        }
+            g_copyCommandList->copyBufferRegion(buffer->buffer->at(0), upload->at(0), buffer->dataSize);
+        });
     }
 
     g_bufferUploadCount++;
 }
 
-template<typename T>
-static void UnlockBuffer(GuestBuffer* buffer)
+static void ProcUnlockBuffer(const RenderCommand& cmd)
 {
-    if (!buffer->lockedReadOnly)
-    {
-        UnlockBuffer<T>(buffer, true);
-    }
-}
+    const auto& args = cmd.unlockBuffer;
+    std::unique_ptr<RenderBuffer> upload(args.upload);
+    auto& buffer = *args.buffer;
+    auto& commandList = g_commandLists[g_frame];
 
-static void ProcUnlockBuffer16(const RenderCommand& cmd)
-{
-    UnlockBuffer<uint16_t>(cmd.unlockBuffer.buffer, false);
-}
-
-static void ProcUnlockBuffer32(const RenderCommand& cmd)
-{
-    UnlockBuffer<uint32_t>(cmd.unlockBuffer.buffer, false);
+    commandList->barriers(RenderBarrierStage::COPY, RenderBufferBarrier(buffer.buffer.get(), RenderBufferAccess::WRITE));
+    commandList->copyBufferRegion(buffer.buffer->at(0), upload->at(0), buffer.dataSize);
+    commandList->barriers(RenderBarrierStage::GRAPHICS, RenderBufferBarrier(buffer.buffer.get(), RenderBufferAccess::READ));
+    g_tempBuffers[g_frame].emplace_back(std::move(upload));
 }
 
 static void UnlockVertexBuffer(GuestBuffer* buffer)
@@ -4443,7 +4772,7 @@ static void DrawImGui()
     {
         RenderCommand cmd;
         cmd.type = RenderCommandType::DrawImGui;
-        g_renderQueue.enqueue(cmd);
+        EnqueueRenderCommand(cmd);
     }
 }
 
@@ -4463,8 +4792,13 @@ static void ProcDrawImGui(const RenderCommand& cmd)
 
     commandList->setGraphicsPipelineLayout(g_imPipelineLayout.get());
     commandList->setPipeline(pipeline);
-    commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
-    commandList->setGraphicsDescriptorSet(g_samplerDescriptorSet.get(), 1);
+    if (g_useFixedDescriptors)
+        commandList->setGraphicsDescriptorSet(GetFixedSamplerSet(nullptr), 1);
+    else
+    {
+        commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
+        commandList->setGraphicsDescriptorSet(g_samplerDescriptorSet.get(), 1);
+    }
 
     auto& drawData = *ImGui::GetDrawData();
     commandList->setViewports(RenderViewport(drawData.DisplayPos.x, drawData.DisplayPos.y, drawData.DisplaySize.x, drawData.DisplaySize.y));
@@ -4574,8 +4908,12 @@ static void ProcDrawImGui(const RenderCommand& cmd)
                     if (texture == g_imFontTexture.get())
                         descriptorIndex |= 0x80000000;
 
-                    setPushConstants(&pushConstants.texture2DDescriptorIndex, &descriptorIndex, sizeof(descriptorIndex));
                 }
+
+                if (g_useFixedDescriptors)
+                    BindFixedTexture(*commandList, descriptorIndex & 0x7FFFFFFF);
+
+                setPushConstants(&pushConstants.texture2DDescriptorIndex, &descriptorIndex, sizeof(descriptorIndex));
 
                 if (pushConstantRangeMin < pushConstantRangeMax)
                 {
@@ -4758,12 +5096,12 @@ void Video::Present()
 
     RenderCommand cmd;
     cmd.type = RenderCommandType::ExecutePendingStretchRectCommands;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 
     DrawImGui();
 
     cmd.type = RenderCommandType::ExecuteCommandList;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 
 #ifdef __ANDROID__
     if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
@@ -4843,6 +5181,12 @@ void Video::Present()
 
     g_dirtyStates = DirtyStates(true);
     g_uploadAllocators[g_frame].reset();
+    if (g_useFixedDescriptors)
+    {
+        // This frame's fence was waited above. None of its sets are in use now.
+        g_fixedTextureSets[g_frame].reset();
+        g_fixedSamplerSets[g_frame].reset();
+    }
     g_intermediaryUploadAllocator.reset();
     g_triangleFanIndexData.reset();
     g_quadIndexData.reset();
@@ -4863,7 +5207,7 @@ void Video::Present()
 #endif
 
     cmd.type = RenderCommandType::BeginCommandList;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 
 #ifdef __ANDROID__
     if (diagnostics.enabled) perfMark = AndroidFrameDiagnostics::Clock::now();
@@ -5281,7 +5625,10 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
             commandList->barriers(RenderBarrierStage::GRAPHICS, srcBarriers, std::size(srcBarriers));
             commandList->setGraphicsPipelineLayout(g_pipelineLayout.get());
             commandList->setPipeline(g_gammaCorrectionPipeline.get());
-            commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
+            if (g_useFixedDescriptors)
+                BindFixedTexture(*commandList, g_intermediaryBackBufferTextureDescriptorIndex);
+            else
+                commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
             SetRootDescriptor(g_uploadAllocators[g_frame].allocate<false>(&constants, sizeof(constants), 0x100), 2);
             commandList->setFramebuffer(framebuffer.get());
             // The draw below writes every pixel of the swap chain image, so its old contents are
@@ -5487,15 +5834,17 @@ static GuestTexture* CreateTexture(uint32_t width, uint32_t height, uint32_t dep
     desc.height = height;
     desc.mipLevels = levels;
     desc.format = ConvertFormat(format);
+    texture->uploadFormat = desc.format;
 
 #ifdef __ANDROID__
-    if (!g_capabilities.textureCompressionBC && RenderFormatBlockWidth(desc.format) > 1)
+    if (!g_capabilities.textureCompressionBC &&
+        (desc.format == RenderFormat::BC1_UNORM || desc.format == RenderFormat::BC3_UNORM))
     {
         static bool s_warned;
         if (!s_warned)
         {
             s_warned = true;
-            LOGF_WARNING("Guest BC texture (format 0x{:X}) created as RGBA8 on a device without BC support.", format);
+            LOGF("Guest BC texture (format 0x{:X}) will be decoded to RGBA8 on upload.", format);
         }
 
         desc.format = RenderFormat::R8G8B8A8_UNORM;
@@ -5549,7 +5898,7 @@ static GuestTexture* CreateTexture(uint32_t width, uint32_t height, uint32_t dep
     texture->viewDimension = viewDesc.dimension;
     texture->descriptorIndex = g_textureDescriptorAllocator.allocate();
 
-    g_textureDescriptorSet->setTexture(texture->descriptorIndex, texture->texture, RenderTextureLayout::SHADER_READ, texture->textureView.get());
+    SetTextureDescriptor(texture->descriptorIndex, texture->texture, RenderTextureLayout::SHADER_READ, texture->textureView.get());
     CreateArrayTextureView(*texture, viewDesc);
 
 #ifdef _DEBUG 
@@ -5662,7 +6011,7 @@ static SurfaceVariant* AcquireSurfaceVariant(uint32_t base, uint32_t width, uint
     viewDesc.mipLevels = 1;
     variant->textureView = variant->textureHolder->createTextureView(viewDesc);
     variant->descriptorIndex = g_textureDescriptorAllocator.allocate();
-    g_textureDescriptorSet->setTexture(variant->descriptorIndex, variant->textureHolder.get(), RenderTextureLayout::SHADER_READ, variant->textureView.get());
+    SetTextureDescriptor(variant->descriptorIndex, variant->textureHolder.get(), RenderTextureLayout::SHADER_READ, variant->textureView.get());
 
 #ifdef _DEBUG
     variant->textureHolder->setName(fmt::format("{} EDRAM {} {}x{} {}x",
@@ -5717,7 +6066,7 @@ static GuestSurface* CreateSurface(uint32_t width, uint32_t height, uint32_t for
         viewDesc.mipLevels = 1;
         surface->textureView = surface->textureHolder->createTextureView(viewDesc);
         surface->descriptorIndex = g_textureDescriptorAllocator.allocate();
-        g_textureDescriptorSet->setTexture(surface->descriptorIndex, surface->textureHolder.get(), RenderTextureLayout::SHADER_READ, surface->textureView.get());
+        SetTextureDescriptor(surface->descriptorIndex, surface->textureHolder.get(), RenderTextureLayout::SHADER_READ, surface->textureView.get());
 
     #ifdef _DEBUG
         surface->texture->setName(fmt::format("{} {:X}", isDepthStencil ? "Depth Stencil" : "Render Target", g_memory.MapVirtual(surface)));
@@ -5773,7 +6122,7 @@ static void StretchRect(GuestDevice* device, uint32_t flags, uint32_t, GuestText
     cmd.stretchRect.flags = flags;
     cmd.stretchRect.texture = texture;
     cmd.stretchRect.destSliceOrFace = destSliceOrFace;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void SetTextureInRenderThread(uint32_t index, GuestTexture* texture);
@@ -5830,7 +6179,7 @@ static void SetDefaultViewport(GuestDevice* device, GuestSurface* surface)
         cmd.setViewport.height = float(surface->height);
         cmd.setViewport.minDepth = 0.0f;
         cmd.setViewport.maxDepth = 1.0f;
-        g_renderQueue.enqueue(cmd);
+        EnqueueRenderCommand(cmd);
 
         device->viewport.x = 0.0f;
         device->viewport.y = 0.0f;
@@ -5848,7 +6197,7 @@ static void SetRenderTarget(GuestDevice* device, uint32_t index, GuestSurface* r
         RenderCommand cmd;
         cmd.type = RenderCommandType::SetRenderTarget;
         cmd.setRenderTarget.renderTarget = renderTarget;
-        g_renderQueue.enqueue(cmd);
+        EnqueueRenderCommand(cmd);
 
         SetDefaultViewport(device, renderTarget);
     }
@@ -5875,7 +6224,7 @@ static void SetDepthStencilSurface(GuestDevice* device, GuestSurface* depthStenc
     RenderCommand cmd;
     cmd.type = RenderCommandType::SetDepthStencilSurface;
     cmd.setDepthStencilSurface.depthStencil = depthStencil;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 
     SetDefaultViewport(device, depthStencil);
 }
@@ -6066,7 +6415,10 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
                     commandList->setPipeline(pipeline);
                     commandList->setViewports(RenderViewport(0.0f, 0.0f, float(texture->width), float(texture->height), 0.0f, 1.0f));
                     commandList->setScissors(RenderRect(0, 0, texture->width, texture->height));
-                    commandList->setGraphicsPushConstants(0, &surface->descriptorIndex, 0, sizeof(uint32_t));
+                    if (g_useFixedDescriptors)
+                        BindFixedTexture(*commandList, surface->descriptorIndex);
+                    else
+                        commandList->setGraphicsPushConstants(0, &surface->descriptorIndex, 0, sizeof(uint32_t));
                     commandList->drawInstanced(3, 1, 0, 0);
 
                     g_dirtyStates.renderTargetAndDepthStencil = true;
@@ -6226,7 +6578,7 @@ static void Clear(GuestDevice* device, uint32_t flags, uint32_t, be<float>* colo
     cmd.clear.color[3] = color[3];
     cmd.clear.z = float(z);
     cmd.clear.stencil = stencil;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static bool SharesStorage(const GuestSurface* lhs, const GuestSurface* rhs)
@@ -6399,7 +6751,7 @@ static void SetViewport(GuestDevice* device, GuestViewport* viewport)
     cmd.setViewport.height = viewport->height;
     cmd.setViewport.minDepth = viewport->minZ;
     cmd.setViewport.maxDepth = viewport->maxZ;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 
     device->viewport.x = float(viewport->x);
     device->viewport.y = float(viewport->y);
@@ -6445,7 +6797,7 @@ static void SetTexture(GuestDevice* device, uint32_t index, GuestTexture* textur
     cmd.type = RenderCommandType::SetTexture;
     cmd.setTexture.index = index;
     cmd.setTexture.texture = texture;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void SetTextureInRenderThread(uint32_t index, GuestTexture* texture)
@@ -6512,7 +6864,7 @@ static void SetScissorRect(GuestDevice* device, GuestRect* rect)
     cmd.setScissorRect.left = rect->left;
     cmd.setScissorRect.bottom = rect->bottom;
     cmd.setScissorRect.right = rect->right;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ProcSetScissorRect(const RenderCommand& cmd)
@@ -6573,11 +6925,22 @@ static RenderShader* GetOrLinkShader(GuestShader* guestShader, uint32_t specCons
             switch (g_backend) {
             case Backend::VULKAN:
             {
-                auto compressedSpirvData = g_shaderCache.get() + guestShader->shaderCacheEntry->spirvOffset;
+                const auto& entry = *guestShader->shaderCacheEntry;
+                uint32_t offset = entry.spirvOffset;
+                uint32_t size = entry.spirvSize;
+                if (const unsigned variant = unsigned(g_useFixedDescriptors) + 2 * unsigned(g_useSoftwareClip); variant != 0)
+                {
+                    offset = entry.androidSpirvOffsets[variant - 1];
+                    size = entry.androidSpirvSizes[variant - 1];
+                }
 
-                std::vector<uint8_t> decoded(smolv::GetDecodedBufferSize(compressedSpirvData, guestShader->shaderCacheEntry->spirvSize));
-                bool result = smolv::Decode(compressedSpirvData, guestShader->shaderCacheEntry->spirvSize, decoded.data(), decoded.size());
-                assert(result);
+                const auto* compressedSpirvData = g_shaderCache.get() + offset;
+                std::vector<uint8_t> decoded(smolv::GetDecodedBufferSize(compressedSpirvData, size));
+                if (!smolv::Decode(compressedSpirvData, size, decoded.data(), decoded.size()))
+                {
+                    LOGF_ERROR("Could not decode SPIR-V for shader {:016X}.", entry.hash);
+                    return nullptr;
+                }
 
                 guestShader->shader = CreateSpirvShader(decoded.data(), decoded.size());
                 break;
@@ -6933,7 +7296,7 @@ static std::unique_ptr<RenderPipeline> CreateGraphicsPipeline(const PipelineStat
     RenderGraphicsPipelineDesc desc;
     desc.pipelineLayout = g_pipelineLayout.get();
     desc.vertexShader = GetOrLinkShader(pipelineState.vertexShader, pipelineState.specConstants);
-    if (pipelineState.enableConditionalSurvey)
+    if (pipelineState.enableConditionalSurvey && g_hasConditionalSurvey)
         desc.pixelShader = GetOrLinkShader(g_conditionalSurveyPSShader.get(), pipelineState.specConstants);
     else if (pipelineState.pixelShader != nullptr)
         desc.pixelShader = GetOrLinkShader(pipelineState.pixelShader, pipelineState.specConstants);
@@ -7282,7 +7645,7 @@ struct LocalRenderCommandQueue
 
     void submit()
     {
-        g_renderQueue.enqueue_bulk(commands, count);
+        EnqueueRenderCommands(commands, count);
     }
 };
 
@@ -7398,7 +7761,10 @@ static void ProcSetSamplerState(const RenderCommand& cmd)
             descriptorIndex = g_samplerStates.size();
             sampler = g_device->createSampler(samplerDesc);
 
-            g_samplerDescriptorSet->setSampler(descriptorIndex - 1 + g_samplerSlotOffset, sampler.get());
+            if (g_useFixedDescriptors)
+                g_fixedSamplers.push_back(sampler.get());
+            else
+                g_samplerDescriptorSet->setSampler(descriptorIndex - 1 + g_samplerSlotOffset, sampler.get());
         }
 
         SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.samplerIndices[args.index], descriptorIndex - 1);
@@ -7453,6 +7819,8 @@ static constexpr float COMMON_SLOPE_SCALED_DEPTH_BIAS_VALUE = 1.0f;
 // kind of draw is logged once.
 static bool CanDrawWithPipelineState(const char* draw, std::atomic<uint32_t>& skipped)
 {
+    if (g_skipSurveyDraws)
+        return false;
     if (g_pipelineState.vertexDeclaration != nullptr && g_pipelineState.vertexShader != nullptr)
         return true;
 
@@ -7607,6 +7975,14 @@ static void FlushRenderStateForRenderThread()
     {
         auto sharedConstants = g_uploadAllocators[g_frame].allocate<false>(&g_sharedConstants, sizeof(g_sharedConstants), 0x100);
         SetRootDescriptor(sharedConstants, 2);
+    }
+
+    if (g_useFixedDescriptors)
+    {
+        commandList->setGraphicsDescriptorSet(GetFixedTextureSet(g_sharedConstants.texture2DIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D), 0);
+        commandList->setGraphicsDescriptorSet(GetFixedTextureSet(g_sharedConstants.texture2DArrayIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D_ARRAY), 1);
+        commandList->setGraphicsDescriptorSet(GetFixedTextureSet(g_sharedConstants.textureCubeIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_CUBE), 2);
+        commandList->setGraphicsDescriptorSet(GetFixedSamplerSet(g_sharedConstants.samplerIndices), 3);
     }
 
     if (g_dirtyStates.vertexStreamFirst <= g_dirtyStates.vertexStreamLast)
@@ -8090,7 +8466,7 @@ static void SetVertexDeclaration(GuestDevice* device, GuestVertexDeclaration* ve
     RenderCommand cmd;
     cmd.type = RenderCommandType::SetVertexDeclaration;
     cmd.setVertexDeclaration.vertexDeclaration = vertexDeclaration;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 
     device->vertexDeclaration = g_memory.MapVirtual(vertexDeclaration);
 }
@@ -8181,7 +8557,7 @@ static void SetVertexShader(GuestDevice* device, GuestShader* shader)
     RenderCommand cmd;
     cmd.type = RenderCommandType::SetVertexShader;
     cmd.setVertexShader.shader = shader;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ProcSetVertexShader(const RenderCommand& cmd)
@@ -8198,7 +8574,7 @@ static void SetStreamSource(GuestDevice* device, uint32_t index, GuestBuffer* bu
     cmd.setStreamSource.buffer = buffer;
     cmd.setStreamSource.offset = offset;
     cmd.setStreamSource.stride = stride;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ProcSetStreamSource(const RenderCommand& cmd)
@@ -8225,7 +8601,7 @@ static void SetIndices(GuestDevice* device, GuestBuffer* buffer)
     RenderCommand cmd;
     cmd.type = RenderCommandType::SetIndices;
     cmd.setIndices.buffer = buffer;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ProcSetIndices(const RenderCommand& cmd)
@@ -8247,7 +8623,7 @@ static void SetPixelShader(GuestDevice* device, GuestShader* shader)
     RenderCommand cmd;
     cmd.type = RenderCommandType::SetPixelShader;
     cmd.setPixelShader.shader = shader;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ProcSetPixelShader(const RenderCommand& cmd)
@@ -8264,7 +8640,7 @@ static void BeginConditionalSurvey(GuestDevice* device, uint32_t index)
     cmd.type = RenderCommandType::SetConditionalSurvey;
     cmd.setConditionalSurvey.enabled = true;
     cmd.setConditionalSurvey.index = index;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void EndConditionalSurvey(GuestDevice* device)
@@ -8273,11 +8649,17 @@ static void EndConditionalSurvey(GuestDevice* device)
     cmd.type = RenderCommandType::SetConditionalSurvey;
     cmd.setConditionalSurvey.enabled = false;
     cmd.setConditionalSurvey.index = 0;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ProcSetConditionalSurvey(const RenderCommand& cmd)
 {
+    if (!g_hasConditionalSurvey)
+    {
+        g_skipSurveyDraws = cmd.setConditionalSurvey.enabled;
+        return;
+    }
+
     if (cmd.setConditionalSurvey.enabled)
     {
         // Clear previous survey result first.
@@ -8292,6 +8674,12 @@ static void ProcSetConditionalSurvey(const RenderCommand& cmd)
 
         g_tempBuffers[g_frame].emplace_back(std::move(uploadBuffer));
     }
+    else if (g_pipelineState.enableConditionalSurvey)
+    {
+        // The consumer can read a result written by another tile in the survey pass.
+        g_commandLists[g_frame]->barriers(RenderBarrierStage::GRAPHICS,
+            RenderBufferBarrier(g_conditionalSurveyBuffer.get(), RenderBufferAccess::READ));
+    }
 
     SetDirtyValue(g_dirtyStates.pipelineState, g_pipelineState.enableConditionalSurvey, cmd.setConditionalSurvey.enabled);
     SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.conditionalSurveyIndex, cmd.setConditionalSurvey.index);
@@ -8305,7 +8693,7 @@ static void BeginConditionalRendering(GuestDevice* device, uint32_t index)
     cmd.type = RenderCommandType::SetConditionalRendering;
     cmd.setConditionalRendering.enabled = true;
     cmd.setConditionalRendering.index = index;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void EndConditionalRendering(GuestDevice* device)
@@ -8314,13 +8702,13 @@ static void EndConditionalRendering(GuestDevice* device)
     cmd.type = RenderCommandType::SetConditionalRendering;
     cmd.setConditionalRendering.enabled = false;
     cmd.setConditionalRendering.index = 0;
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void ProcSetConditionalRendering(const RenderCommand& cmd)
 {
     uint32_t specConstants = g_pipelineState.specConstants;
-    if (cmd.setConditionalRendering.enabled)
+    if (g_hasConditionalSurvey && cmd.setConditionalRendering.enabled)
         specConstants |= SPEC_CONSTANT_CONDITIONAL_RENDERING;
     else
         specConstants &= ~SPEC_CONSTANT_CONDITIONAL_RENDERING;
@@ -8367,8 +8755,7 @@ static std::thread g_renderThread([]
                 case RenderCommandType::SetRenderState:                    ProcSetRenderState(cmd); break;
                 case RenderCommandType::DestructResource:                  ProcDestructResource(cmd); break;
                 case RenderCommandType::UnlockTextureRect:                 ProcUnlockTextureRect(cmd); break;
-                case RenderCommandType::UnlockBuffer16:                    ProcUnlockBuffer16(cmd); break;
-                case RenderCommandType::UnlockBuffer32:                    ProcUnlockBuffer32(cmd); break;
+                case RenderCommandType::UnlockBuffer:                      ProcUnlockBuffer(cmd); break;
                 case RenderCommandType::DrawImGui:                         ProcDrawImGui(cmd); break;
                 case RenderCommandType::ExecuteCommandList:                ProcExecuteCommandList(cmd); break;
                 case RenderCommandType::BeginCommandList:                  ProcBeginCommandList(cmd); break;
@@ -8950,7 +9337,7 @@ static bool LoadTexture(GuestTexture& texture, const uint8_t* data, size_t dataS
         viewDesc.componentMapping = componentMapping;
         texture.textureView = texture.texture->createTextureView(viewDesc);
         texture.descriptorIndex = g_textureDescriptorAllocator.allocate();
-        g_textureDescriptorSet->setTexture(texture.descriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ, texture.textureView.get());
+        SetTextureDescriptor(texture.descriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ, texture.textureView.get());
 
         texture.width = ddsDesc.width;
         texture.height = ddsDesc.height;
@@ -9162,7 +9549,7 @@ static bool LoadTexture(GuestTexture& texture, const uint8_t* data, size_t dataS
             texture.layout = RenderTextureLayout::COPY_DEST;
 
             texture.descriptorIndex = g_textureDescriptorAllocator.allocate();
-            g_textureDescriptorSet->setTexture(texture.descriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ);
+            SetTextureDescriptor(texture.descriptorIndex, texture.texture, RenderTextureLayout::SHADER_READ);
 
             RenderTextureViewDesc arrayViewDesc = RenderTextureViewDesc::Texture2D(RenderFormat::R8G8B8A8_UNORM);
             arrayViewDesc.mipLevels = 1;
@@ -9406,7 +9793,7 @@ static void CompilePipeline(XXH64_hash_t pipelineHash, const PipelineState& pipe
     cmd.type = RenderCommandType::AddPipeline;
     cmd.addPipeline.hash = pipelineHash;
     cmd.addPipeline.pipeline = pipeline.release();
-    g_renderQueue.enqueue(cmd);
+    EnqueueRenderCommand(cmd);
 }
 
 static void PipelineCompilerThread()

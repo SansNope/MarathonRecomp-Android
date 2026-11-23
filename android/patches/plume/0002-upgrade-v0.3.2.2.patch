@@ -1,0 +1,71 @@
+diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+index 584818f..614c963 100644
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -1831,6 +1831,8 @@ namespace plume {
+         // workarounds in the MarathonRecomp Android renderer). 0/false means unknown.
+         uint32_t maxVertexInputAttributes = 0;
+         uint32_t maxVertexInputBindings = 0;
++        uint32_t maxVertexOutputComponents = 0;
++        uint32_t maxFragmentInputComponents = 0;
+         bool shaderClipDistance = false;
+         bool fragmentStoresAndAtomics = false;
+         bool vertexPipelineStoresAndAtomics = false;
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+index eadb468..0df728b 100644
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -911,6 +911,8 @@ namespace plume {
+         case RenderHeapType::UPLOAD:
+             bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+             createInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
++            // Frame upload arenas stay mapped and are written before submission.
++            createInfo.requiredFlags |= VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+             break;
+         case RenderHeapType::READBACK:
+             bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+@@ -970,6 +972,9 @@ namespace plume {
+     }
+ 
+     void VulkanBuffer::unmap(uint32_t subresource, const RenderRange *writtenRange) {
++        if (desc.heapType == RenderHeapType::GPU_UPLOAD) {
++            vmaFlushAllocation(device->allocator, allocation, 0, VK_WHOLE_SIZE);
++        }
+         vmaUnmapMemory(device->allocator, allocation);
+     }
+ 
+@@ -2083,7 +2088,11 @@ namespace plume {
+     }
+ 
+     void VulkanDescriptorSet::setDescriptor(uint32_t descriptorIndex, const VkDescriptorBufferInfo *bufferInfo, const VkDescriptorImageInfo *imageInfo, const VkBufferView *texelBufferView, void *pNext) {
+-        assert(descriptorIndex < setLayout->descriptorBindingIndices.size());
++        if (vk == VK_NULL_HANDLE || descriptorIndex >= setLayout->descriptorBindingIndices.size()) {
++            fprintf(stderr, "Cannot update Vulkan descriptor %u (set capacity %zu).\n",
++                descriptorIndex, setLayout->descriptorBindingIndices.size());
++            return;
++        }
+ 
+         const uint32_t indexBase = setLayout->descriptorIndexBases[descriptorIndex];
+         const uint32_t bindingIndex = setLayout->descriptorBindingIndices[descriptorIndex];
+@@ -4478,8 +4487,10 @@ namespace plume {
+         }
+ 
+         const bool descriptorIndexingSupported = coreVulkan12
+-            ? (vulkan12Features.descriptorBindingPartiallyBound && vulkan12Features.descriptorBindingVariableDescriptorCount && vulkan12Features.runtimeDescriptorArray)
+-            : (indexingFeatures.descriptorBindingPartiallyBound && indexingFeatures.descriptorBindingVariableDescriptorCount && indexingFeatures.runtimeDescriptorArray);
++            ? (vulkan12Features.descriptorBindingPartiallyBound && vulkan12Features.descriptorBindingVariableDescriptorCount &&
++               vulkan12Features.runtimeDescriptorArray && vulkan12Features.descriptorBindingSampledImageUpdateAfterBind)
++            : (indexingFeatures.descriptorBindingPartiallyBound && indexingFeatures.descriptorBindingVariableDescriptorCount &&
++               indexingFeatures.runtimeDescriptorArray && indexingFeatures.descriptorBindingSampledImageUpdateAfterBind);
+         if (!coreVulkan12 && descriptorIndexingSupported) {
+             indexingFeatures.pNext = createDeviceChain;
+             createDeviceChain = &indexingFeatures;
+@@ -4722,6 +4733,8 @@ namespace plume {
+         capabilities.maxBoundDescriptorSets = physicalDeviceProperties.limits.maxBoundDescriptorSets;
+         capabilities.maxVertexInputAttributes = physicalDeviceProperties.limits.maxVertexInputAttributes;
+         capabilities.maxVertexInputBindings = physicalDeviceProperties.limits.maxVertexInputBindings;
++        capabilities.maxVertexOutputComponents = physicalDeviceProperties.limits.maxVertexOutputComponents;
++        capabilities.maxFragmentInputComponents = physicalDeviceProperties.limits.maxFragmentInputComponents;
+         capabilities.shaderClipDistance = deviceFeatures.features.shaderClipDistance;
+         capabilities.fragmentStoresAndAtomics = deviceFeatures.features.fragmentStoresAndAtomics;
+         capabilities.vertexPipelineStoresAndAtomics = deviceFeatures.features.vertexPipelineStoresAndAtomics;

@@ -195,6 +195,7 @@ struct GuestTexture : GuestBaseTexture
     // Second view of a 2D texture typed as a 2D array, for the Texture2DArray heap (see CreateArrayTextureView).
     std::unique_ptr<RenderTextureView> arrayTextureView;
     uint32_t arrayDescriptorIndex = 0;
+    RenderFormat uploadFormat = RenderFormat::UNKNOWN;
 };
 
 struct GuestLockedRect

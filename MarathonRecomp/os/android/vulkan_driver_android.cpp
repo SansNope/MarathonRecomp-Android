@@ -891,7 +891,7 @@ static void InstallBundledDriversIfNeeded(const std::filesystem::path &turnipDir
     WriteTextFileIfMissing(turnipDir / "driver_name.txt", BUNDLED_DRIVER_NAME);
 }
 
-static void EnsureVulkanDriverInstalled(const std::string &turnipDirString)
+static void EnsureVulkanDriverInstalled(const std::string &turnipDirString, bool provisionBundledDrivers)
 {
     std::filesystem::path turnipDir(turnipDirString);
 
@@ -899,7 +899,8 @@ static void EnsureVulkanDriverInstalled(const std::string &turnipDirString)
     std::filesystem::create_directories(turnipDir, ec);
 
     ProcessDriverImportDir(turnipDir);
-    InstallBundledDriversIfNeeded(turnipDir);
+    if (provisionBundledDrivers)
+        InstallBundledDriversIfNeeded(turnipDir);
 }
 
 static std::string GetCustomDriverName(const std::string &turnipDir)
@@ -1128,7 +1129,13 @@ void *AndroidGetCustomVulkanLoader()
         return nullptr;
     }
 
-    EnsureVulkanDriverInstalled(turnipDir);
+    std::string gpuDescription;
+    const EAndroidGpuFamily gpuFamily = DetectGpuFamily(gpuDescription);
+    const bool knownNonAdreno = gpuFamily != EAndroidGpuFamily::Adreno && gpuFamily != EAndroidGpuFamily::Unknown;
+    const bool skipBundled = g_runtimeVulkanDriver == EAndroidVulkanDriver::Auto && knownNonAdreno;
+    EnsureVulkanDriverInstalled(turnipDir, !skipBundled);
+    if (skipBundled)
+        LOG("Skipped provisioning bundled Adreno drivers on a non-Adreno GPU in Auto mode.");
 
     std::string driverName;
     switch (g_runtimeVulkanDriver)
@@ -1182,9 +1189,7 @@ void *AndroidGetCustomVulkanLoader()
             break;
     }
 
-    std::string gpuDescription;
-    const EAndroidGpuFamily gpuFamily = DetectGpuFamily(gpuDescription);
-    if (gpuFamily != EAndroidGpuFamily::Adreno && gpuFamily != EAndroidGpuFamily::Unknown)
+    if (knownNonAdreno)
     {
         // Auto only skips the *bundled* Turnip: an explicitly imported driver selected on a
         // non-Adreno device (e.g. a PanVK build on Mali) stays honored, as do the explicit

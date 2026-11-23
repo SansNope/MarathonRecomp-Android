@@ -48,8 +48,11 @@ foreach ($submodule in 'thirdparty\SDL', 'thirdparty\plume', 'thirdparty\vcpkg',
 $ErrorActionPreference = 'Continue'
 git -C (Join-Path $repo 'thirdparty\plume') apply --reverse --check (Join-Path $repo 'android\patches\plume\0001-marathon-android.patch') 2>&1 | Out-Null
 $plumePatched = $LASTEXITCODE -eq 0
+git -C (Join-Path $repo 'tools\XenosRecomp') apply --reverse --check (Join-Path $repo 'android\patches\xenosrecomp\0001-android-shader-variants.patch') 2>&1 | Out-Null
+$xenosPatched = $LASTEXITCODE -eq 0
 $ErrorActionPreference = 'Stop'
 Add-Check 'plume android patch applied' $plumePatched 'run Prepare-Dependencies.ps1 if not'
+Add-Check 'XenosRecomp shader variants patch applied' $xenosPatched 'run Prepare-Dependencies.ps1 before building the host tools'
 Add-Check 'zlib 1.3.2 (out/deps)' (Test-Path -LiteralPath (Join-Path $repo 'out\deps\zlib-1.3.2\zlib.h')) 'Prepare-Dependencies.ps1'
 Add-Check 'vcpkg-ffmpeg (out/deps)' (Test-Path -LiteralPath (Join-Path $repo 'out\deps\vcpkg-ffmpeg\ports\ffmpeg\0008-xmaframes.patch')) 'Prepare-Dependencies.ps1'
 

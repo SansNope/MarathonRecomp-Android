@@ -2,8 +2,8 @@
 
 #ifdef __spirv__
 
-#define s0_Texture2DDescriptorIndex vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + 0)
-#define s0_SamplerDescriptorIndex vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + 192)
+#define s0_Texture2DDescriptorIndex MARATHON_GUEST_DESCRIPTOR_INDEX(0, 0)
+#define s0_SamplerDescriptorIndex MARATHON_GUEST_DESCRIPTOR_INDEX(0, 192)
 
 #else
 

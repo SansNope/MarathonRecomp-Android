@@ -1,0 +1,182 @@
+diff --git a/XenosRecomp/main.cpp b/XenosRecomp/main.cpp
+index a8b87a6..0c21630 100644
+--- a/XenosRecomp/main.cpp
++++ b/XenosRecomp/main.cpp
+@@ -34,11 +34,12 @@ struct RecompiledShader
+     uint8_t* data = nullptr;
+     IDxcBlob* dxil = nullptr;
+     std::vector<uint8_t> spirv;
++    std::vector<uint8_t> androidSpirv[3];
+     std::vector<uint8_t> air;
+     uint32_t specConstantsMask = 0;
+ };
+ 
+-void recompileShader(RecompiledShader& shader, const std::string_view include, std::atomic<uint32_t>& progress, uint32_t numShaders)
++void recompileShader(RecompiledShader& shader, const std::string_view include, std::atomic<uint32_t>& progress, uint32_t numShaders, bool androidVariants)
+ {
+     thread_local ShaderRecompiler recompiler;
+     recompiler = {};
+@@ -58,13 +59,27 @@ void recompileShader(RecompiledShader& shader, const std::string_view include, s
+     shader.air = AirCompiler::compile(recompiler.out);
+ #endif
+ 
+-    IDxcBlob* spirv = dxcCompiler.compile(recompiler.out, recompiler.isPixelShader, false, true);
+-    assert(spirv != nullptr);
+-
+-    bool result = smolv::Encode(spirv->GetBufferPointer(), spirv->GetBufferSize(), shader.spirv, smolv::kEncodeFlagStripDebugInfo);
+-    assert(result);
+-
+-    spirv->Release();
++    auto compileSpirv = [&](const std::string& source, std::vector<uint8_t>& bytecode)
++    {
++        IDxcBlob* spirv = dxcCompiler.compile(source, recompiler.isPixelShader, false, true);
++        if (spirv == nullptr)
++            exit(EXIT_FAILURE);
++
++        const bool encoded = smolv::Encode(spirv->GetBufferPointer(), spirv->GetBufferSize(),
++            bytecode, smolv::kEncodeFlagStripDebugInfo);
++        spirv->Release();
++        if (!encoded)
++            exit(EXIT_FAILURE);
++    };
++
++    compileSpirv(recompiler.out, shader.spirv);
++    if (androidVariants)
++    {
++        compileSpirv("#define MARATHON_FIXED_DESCRIPTORS 1\n" + recompiler.out, shader.androidSpirv[0]);
++        compileSpirv("#define MARATHON_SOFTWARE_CLIP 1\n" + recompiler.out, shader.androidSpirv[1]);
++        compileSpirv("#define MARATHON_FIXED_DESCRIPTORS 1\n#define MARATHON_SOFTWARE_CLIP 1\n" +
++            recompiler.out, shader.androidSpirv[2]);
++    }
+ 
+     size_t currentProgress = ++progress;
+     if ((currentProgress % 10) == 0 || (currentProgress == numShaders - 1))
+@@ -185,7 +200,8 @@ int main(int argc, char** argv)
+                         shaderHash = shaderQueue.front();
+                         shaderQueue.pop_front();
+                     }
+-                    recompileShader(shaders[shaderHash], include, progress, shaders.size());
++                    recompileShader(shaders[shaderHash], include, progress, shaders.size(),
++                        argc > 4 && std::string_view(argv[4]) == "--android-variants");
+                 }
+             });
+         }
+@@ -214,9 +230,21 @@ int main(int argc, char** argv)
+                 // Prevent bad escape sequences in Windows shader path.
+                 std::replace(filename.begin(), filename.end(), '\\', '/');
+             }
+-            f.println("\t{{ 0x{:X}, {}, {}, {}, {}, {}, {}, {}, \"{}\" }},",
++            const size_t spirvOffset = spirv.size();
++            spirv.insert(spirv.end(), shader.spirv.begin(), shader.spirv.end());
++            size_t variantOffsets[3]{};
++            for (size_t i = 0; i < 3; ++i)
++            {
++                variantOffsets[i] = spirv.size();
++                const auto& variant = shader.androidSpirv[i];
++                spirv.insert(spirv.end(), variant.begin(), variant.end());
++            }
++
++            f.println("\t{{ 0x{:X}, {}, {}, {}, {}, {{{}, {}, {}}}, {{{}, {}, {}}}, {}, {}, {}, \"{}\" }},",
+                 hash, dxil.size(), (shader.dxil != nullptr) ? shader.dxil->GetBufferSize() : 0,
+-                spirv.size(), shader.spirv.size(), air.size(), shader.air.size(), shader.specConstantsMask, filename);
++                spirvOffset, shader.spirv.size(), variantOffsets[0], variantOffsets[1], variantOffsets[2],
++                shader.androidSpirv[0].size(), shader.androidSpirv[1].size(), shader.androidSpirv[2].size(),
++                air.size(), shader.air.size(), shader.specConstantsMask, filename);
+ 
+             if (shader.dxil != nullptr)
+             {
+@@ -227,8 +255,6 @@ int main(int argc, char** argv)
+ #ifdef XENOS_RECOMP_AIR
+             air.insert(air.end(), shader.air.begin(), shader.air.end());
+ #endif
+-
+-            spirv.insert(spirv.end(), shader.spirv.begin(), shader.spirv.end());
+         }
+ 
+         f.println("}};");
+diff --git a/XenosRecomp/shader_common.h b/XenosRecomp/shader_common.h
+index 5e0b6b1..6bec2f9 100644
+--- a/XenosRecomp/shader_common.h
++++ b/XenosRecomp/shader_common.h
+@@ -275,10 +275,18 @@ float3 getWeights2DArray(constant Texture2DArrayDescriptorHeap* textureHeap,
+ 
+ #else
+ 
+-Texture2D<float4> g_Texture2DDescriptorHeap[] : register(t0, space0);
+-Texture2DArray<float4> g_Texture2DArrayDescriptorHeap[] : register(t0, space1);
+-TextureCube<float4> g_TextureCubeDescriptorHeap[] : register(t0, space2);
+-SamplerState g_SamplerDescriptorHeap[] : register(s0, space3);
++#ifdef MARATHON_FIXED_DESCRIPTORS
++#define MARATHON_DESCRIPTOR_COUNT 16
++#define MARATHON_GUEST_DESCRIPTOR_INDEX(SLOT, BYTE_OFFSET) (SLOT)
++#else
++#define MARATHON_DESCRIPTOR_COUNT
++#define MARATHON_GUEST_DESCRIPTOR_INDEX(SLOT, BYTE_OFFSET) vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + (BYTE_OFFSET))
++#endif
++
++Texture2D<float4> g_Texture2DDescriptorHeap[MARATHON_DESCRIPTOR_COUNT] : register(t0, space0);
++Texture2DArray<float4> g_Texture2DArrayDescriptorHeap[MARATHON_DESCRIPTOR_COUNT] : register(t0, space1);
++TextureCube<float4> g_TextureCubeDescriptorHeap[MARATHON_DESCRIPTOR_COUNT] : register(t0, space2);
++SamplerState g_SamplerDescriptorHeap[MARATHON_DESCRIPTOR_COUNT] : register(s0, space3);
+ 
+ #ifdef MARATHON_RECOMP
+ RWStructuredBuffer<uint> g_ConditionalSurveyBuffer : register(u0, space4);
+diff --git a/XenosRecomp/shader_recompiler.cpp b/XenosRecomp/shader_recompiler.cpp
+index bb8a47e..0cff123 100644
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -1358,12 +1358,12 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+         {
+             for (size_t j = 0; j < std::size(TEXTURE_DIMENSIONS); j++)
+             {
+-                println("#define {}_Texture{}DescriptorIndex vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + {})",
+-                    constantName, TEXTURE_DIMENSIONS[j], j * 64 + constantInfo->registerIndex * 4);
++                println("#define {}_Texture{}DescriptorIndex MARATHON_GUEST_DESCRIPTOR_INDEX({}, {})",
++                    constantName, TEXTURE_DIMENSIONS[j], constantInfo->registerIndex.get(), j * 64 + constantInfo->registerIndex * 4);
+             }
+ 
+-            println("#define {}_SamplerDescriptorIndex vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + {})",
+-                constantName, std::size(TEXTURE_DIMENSIONS) * 64 + constantInfo->registerIndex * 4);
++            println("#define {}_SamplerDescriptorIndex MARATHON_GUEST_DESCRIPTOR_INDEX({}, {})",
++                constantName, constantInfo->registerIndex.get(), std::size(TEXTURE_DIMENSIONS) * 64 + constantInfo->registerIndex * 4);
+ 
+             samplers.emplace(constantInfo->registerIndex, constantName);
+             break;
+@@ -1536,6 +1536,9 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+         for (auto& [usage, usageIndex] : INTERPOLATORS)
+             println("\tfloat4 i{0}{1} : {2}{1};", USAGE_VARIABLES[uint32_t(usage)], usageIndex, USAGE_SEMANTICS[uint32_t(usage)]);
+ 
++        out += "#ifdef MARATHON_SOFTWARE_CLIP\n";
++        out += "\tfloat clipDistance : TEXCOORD16;\n";
++        out += "#endif\n";
+         out += "#endif\n";
+     }
+     else
+@@ -1682,7 +1685,11 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+         for (auto& [usage, usageIndex] : INTERPOLATORS)
+             print("\tfloat4 o{0}{1} : {2}{1};\n", USAGE_VARIABLES[uint32_t(usage)], usageIndex, USAGE_SEMANTICS[uint32_t(usage)]);
+ 
++        out += "#ifdef MARATHON_SOFTWARE_CLIP\n";
++        out += "\tfloat clipDistance : TEXCOORD16;\n";
++        out += "#else\n";
+         out += "\tfloat clipDistance : SV_ClipDistance;\n";
++        out += "#endif\n";
+ 
+         out += "#endif\n";
+     }
+@@ -1910,10 +1917,14 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+ #ifdef MARATHON_RECOMP
+         specConstantsMask |= SPEC_CONSTANT_CONDITIONAL_RENDERING;
+ 
++        out += "#ifdef MARATHON_SOFTWARE_CLIP\n";
++        out += "\tif (g_ClipPlaneEnabled && input.clipDistance < 0.0) discard;\n";
++        out += "#endif\n";
++
+         out += "\tBRANCH if ((g_SpecConstants() & SPEC_CONSTANT_CONDITIONAL_RENDERING))\n";
+         out += "\t{\n";
+ 
+-        out += "\t\tuint sampleCount = atomicLoadUint(g_ConditionalSurveyBuffer, g_conditionalSurveyIndex);\n";
++        out += "\t\tuint sampleCount = atomicLoadUint(g_ConditionalSurveyBuffer, g_conditionalRenderingIndex);\n";
+         out += "\t\tBRANCH if (sampleCount == 0)\n";
+         out += "\t\t{\n";
+ 
