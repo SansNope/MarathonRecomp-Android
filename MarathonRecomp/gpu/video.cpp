@@ -3395,8 +3395,13 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         const bool limitedVertex = g_capabilities.maxVertexInputAttributes != 0 && g_capabilities.maxVertexInputAttributes < 20;
         g_compactVertexLocations = (g_backend == Backend::VULKAN) && (forcedVertex || limitedVertex);
 
-        // <game root>/clip_distance_strip.enabled forces it on GPUs that support clip distances.
+        // The diagnostic build applies the same behavior as the startup marker.
+#ifdef MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP
+        constexpr bool forcedClip = true;
+        LOG("Diagnostic build forces clip_distance_strip.enabled.");
+#else
         const bool forcedClip = std::filesystem::exists(os::android::GetDataRoot() / "clip_distance_strip.enabled", error);
+#endif
         g_stripClipDistance = (g_backend == Backend::VULKAN) && (forcedClip || !g_capabilities.shaderClipDistance);
 
         // The software variant uses TEXCOORD16 after the existing 18 interpolators.
@@ -3410,11 +3415,14 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
             LOG_WARNING("ClipDistance removed from shaders; user clip planes are disabled.");
 
         constexpr uint32_t armVendorId = 0x13B5;
-        g_stageGuestBuffers = g_backend == Backend::VULKAN &&
+        const bool disableStagedBuffers = std::filesystem::exists(os::android::GetDataRoot() / "staged_guest_buffers.disabled", error);
+        g_stageGuestBuffers = g_backend == Backend::VULKAN && !disableStagedBuffers &&
             (uint32_t(g_device->getDescription().vendor) == armVendorId ||
              std::filesystem::exists(os::android::GetDataRoot() / "staged_guest_buffers.enabled", error));
         if (g_stageGuestBuffers)
             LOG("Guest vertex/index updates are ordered on the render queue.");
+        else if (disableStagedBuffers && g_backend == Backend::VULKAN)
+            LOG("Staged guest vertex/index updates disabled by staged_guest_buffers.disabled.");
 
         g_hasConditionalSurvey = g_backend != Backend::VULKAN || g_capabilities.fragmentStoresAndAtomics;
         if (!g_hasConditionalSurvey)
@@ -8825,7 +8833,48 @@ static std::thread g_renderThread([]
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
 #endif
 
+        const auto dispatch = [](const RenderCommand& cmd)
+        {
+            switch (cmd.type)
+            {
+            case RenderCommandType::SetRenderState:                    ProcSetRenderState(cmd); break;
+            case RenderCommandType::DestructResource:                  ProcDestructResource(cmd); break;
+            case RenderCommandType::UnlockTextureRect:                 ProcUnlockTextureRect(cmd); break;
+            case RenderCommandType::UnlockBuffer:                      ProcUnlockBuffer(cmd); break;
+            case RenderCommandType::DrawImGui:                         ProcDrawImGui(cmd); break;
+            case RenderCommandType::ExecuteCommandList:                ProcExecuteCommandList(cmd); break;
+            case RenderCommandType::BeginCommandList:                  ProcBeginCommandList(cmd); break;
+            case RenderCommandType::StretchRect:                       ProcStretchRect(cmd); break;
+            case RenderCommandType::SetRenderTarget:                   ProcSetRenderTarget(cmd); break;
+            case RenderCommandType::SetDepthStencilSurface:            ProcSetDepthStencilSurface(cmd); break;
+            case RenderCommandType::ExecutePendingStretchRectCommands: ProcExecutePendingStretchRectCommands(cmd); break;
+            case RenderCommandType::Clear:                             ProcClear(cmd); break;
+            case RenderCommandType::SetViewport:                       ProcSetViewport(cmd); break;
+            case RenderCommandType::SetTexture:                        ProcSetTexture(cmd); break;
+            case RenderCommandType::SetScissorRect:                    ProcSetScissorRect(cmd); break;
+            case RenderCommandType::SetSamplerState:                   ProcSetSamplerState(cmd); break;
+            case RenderCommandType::SetBooleans:                       ProcSetBooleans(cmd); break;
+            case RenderCommandType::SetVertexShaderConstants:          ProcSetVertexShaderConstants(cmd); break;
+            case RenderCommandType::SetPixelShaderConstants:           ProcSetPixelShaderConstants(cmd); break;
+            case RenderCommandType::AddPipeline:                       ProcAddPipeline(cmd); break;
+            case RenderCommandType::DrawPrimitive:                     ProcDrawPrimitive(cmd); break;
+            case RenderCommandType::DrawIndexedPrimitive:              ProcDrawIndexedPrimitive(cmd); break;
+            case RenderCommandType::DrawPrimitiveUP:                   ProcDrawPrimitiveUP(cmd); break;
+            case RenderCommandType::SetVertexDeclaration:              ProcSetVertexDeclaration(cmd); break;
+            case RenderCommandType::SetVertexShader:                   ProcSetVertexShader(cmd); break;
+            case RenderCommandType::SetStreamSource:                   ProcSetStreamSource(cmd); break;
+            case RenderCommandType::SetIndices:                        ProcSetIndices(cmd); break;
+            case RenderCommandType::SetPixelShader:                    ProcSetPixelShader(cmd); break;
+            case RenderCommandType::SetConditionalSurvey:              ProcSetConditionalSurvey(cmd); break;
+            case RenderCommandType::SetConditionalRendering:           ProcSetConditionalRendering(cmd); break;
+            default:                                                   assert(false && "Unrecognized render command type."); break;
+            }
+        };
+
         RenderCommand commands[32];
+        std::vector<RenderCommand> deferredResources;
+        bool recording = true; // CreateHostDevice begins the first list before the guest starts.
+        bool loggedDeferredUpload = false;
 
         while (true)
         {
@@ -8833,40 +8882,35 @@ static std::thread g_renderThread([]
 
             for (size_t i = 0; i < count; i++)
             {
-                auto& cmd = commands[i];
-                switch (cmd.type)
+                const auto& cmd = commands[i];
+                if (g_stageGuestBuffers && !recording)
                 {
-                case RenderCommandType::SetRenderState:                    ProcSetRenderState(cmd); break;
-                case RenderCommandType::DestructResource:                  ProcDestructResource(cmd); break;
-                case RenderCommandType::UnlockTextureRect:                 ProcUnlockTextureRect(cmd); break;
-                case RenderCommandType::UnlockBuffer:                      ProcUnlockBuffer(cmd); break;
-                case RenderCommandType::DrawImGui:                         ProcDrawImGui(cmd); break;
-                case RenderCommandType::ExecuteCommandList:                ProcExecuteCommandList(cmd); break;
-                case RenderCommandType::BeginCommandList:                  ProcBeginCommandList(cmd); break;
-                case RenderCommandType::StretchRect:                       ProcStretchRect(cmd); break;
-                case RenderCommandType::SetRenderTarget:                   ProcSetRenderTarget(cmd); break;
-                case RenderCommandType::SetDepthStencilSurface:            ProcSetDepthStencilSurface(cmd); break;
-                case RenderCommandType::ExecutePendingStretchRectCommands: ProcExecutePendingStretchRectCommands(cmd); break;
-                case RenderCommandType::Clear:                             ProcClear(cmd); break;
-                case RenderCommandType::SetViewport:                       ProcSetViewport(cmd); break;
-                case RenderCommandType::SetTexture:                        ProcSetTexture(cmd); break;
-                case RenderCommandType::SetScissorRect:                    ProcSetScissorRect(cmd); break;
-                case RenderCommandType::SetSamplerState:                   ProcSetSamplerState(cmd); break;
-                case RenderCommandType::SetBooleans:                       ProcSetBooleans(cmd); break;
-                case RenderCommandType::SetVertexShaderConstants:          ProcSetVertexShaderConstants(cmd); break;
-                case RenderCommandType::SetPixelShaderConstants:           ProcSetPixelShaderConstants(cmd); break;
-                case RenderCommandType::AddPipeline:                       ProcAddPipeline(cmd); break;
-                case RenderCommandType::DrawPrimitive:                     ProcDrawPrimitive(cmd); break;
-                case RenderCommandType::DrawIndexedPrimitive:              ProcDrawIndexedPrimitive(cmd); break;
-                case RenderCommandType::DrawPrimitiveUP:                   ProcDrawPrimitiveUP(cmd); break;
-                case RenderCommandType::SetVertexDeclaration:              ProcSetVertexDeclaration(cmd); break;
-                case RenderCommandType::SetVertexShader:                   ProcSetVertexShader(cmd); break;
-                case RenderCommandType::SetStreamSource:                   ProcSetStreamSource(cmd); break;
-                case RenderCommandType::SetIndices:                        ProcSetIndices(cmd); break;
-                case RenderCommandType::SetPixelShader:                    ProcSetPixelShader(cmd); break;
-                case RenderCommandType::SetConditionalSurvey:              ProcSetConditionalSurvey(cmd); break;
-                case RenderCommandType::SetConditionalRendering:           ProcSetConditionalRendering(cmd); break;
-                default:                                                   assert(false && "Unrecognized render command type."); break;
+                    const bool upload = cmd.type == RenderCommandType::UnlockBuffer ||
+                        cmd.type == RenderCommandType::UnlockTextureRect;
+                    if (upload || cmd.type == RenderCommandType::DestructResource)
+                    {
+                        // Keep uploads and their resource releases in order across the frame boundary.
+                        deferredResources.push_back(cmd);
+                        if (upload && !loggedDeferredUpload)
+                        {
+                            LOG("Deferred a resource upload until the next command list.");
+                            loggedDeferredUpload = true;
+                        }
+                        continue;
+                    }
+                }
+
+                dispatch(cmd);
+                if (cmd.type == RenderCommandType::ExecuteCommandList)
+                {
+                    recording = false;
+                }
+                else if (cmd.type == RenderCommandType::BeginCommandList)
+                {
+                    recording = true;
+                    for (const auto& pending : deferredResources)
+                        dispatch(pending);
+                    deferredResources.clear();
                 }
             }
         }

@@ -1,5 +1,7 @@
 project("MarathonRecomp")
 
+option(MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP "Force the Android clip_distance_strip.enabled behavior" ON)
+
 if (WIN32)
     option(MARATHON_RECOMP_D3D12 "Add D3D12 support for rendering" ON)
 endif()
@@ -414,6 +416,9 @@ if (MARATHON_RECOMP_FLATPAK)
 endif()
 
 if (ANDROID)
+    if (MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP)
+        target_compile_definitions(MarathonRecomp PRIVATE MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP)
+    endif()
     target_link_libraries(MarathonRecomp PRIVATE android log adrenotools)
 else()
     find_package(CURL REQUIRED)

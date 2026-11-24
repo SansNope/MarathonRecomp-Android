@@ -23,6 +23,8 @@
 
 Нужно несколько гигабайт свободного места: папки сборки, vcpkg, FFmpeg и кэши Gradle лежат в `out/`.
 
+> В хотфиксе v0.3.4.1 для Android по умолчанию включено `MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP`. Для существующего каталога сборки с выключенной опцией передайте `-DMARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP=ON`, чтобы воспроизвести хотфикс.
+
 ### Файлы игры
 
 Из **своей** копии игры для Xbox 360 (см. [docs/DUMPING-en.md](../DUMPING-en.md) и оригинальный [docs/BUILDING.md](../BUILDING.md)) скопируйте в `MarathonRecompLib/private/`:

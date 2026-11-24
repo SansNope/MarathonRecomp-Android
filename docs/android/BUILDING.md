@@ -23,6 +23,8 @@ The result is a debug APK for **arm64-v8a, Android 10 (API 29) or newer**.
 
 Plan for several GB of free disk space: the build directories, vcpkg, FFmpeg and Gradle caches all live in `out/`.
 
+> The v0.3.4.1 Android hotfix enables `MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP` by default. For an existing build directory configured with this option disabled, pass `-DMARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP=ON` to reproduce the hotfix.
+
 ### Game files
 
 From **your own** copy of the Xbox 360 game (see [docs/DUMPING-en.md](../DUMPING-en.md) and the upstream [docs/BUILDING.md](../BUILDING.md)) copy into `MarathonRecompLib/private/`:
