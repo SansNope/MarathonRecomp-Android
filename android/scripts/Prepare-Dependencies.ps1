@@ -37,7 +37,7 @@ if (-not $SkipSubmodules) {
     Invoke-Native git @('-C', $repo, 'submodule', 'update', '--init', '--recursive')
 }
 
-function Apply-SubmodulePatch([string]$submodule, [string]$patchPath, [string]$upgradePath = '') {
+function Apply-SubmodulePatch([string]$submodule, [string]$patchPath, [string[]]$upgradePaths = @()) {
     Write-Output "== $submodule Android patch"
     $directory = Join-Path $repo $submodule
     $patch = Join-Path $repo $patchPath
@@ -52,12 +52,12 @@ function Apply-SubmodulePatch([string]$submodule, [string]$patchPath, [string]$u
         return
     }
 
-    if ($upgradePath) {
+    foreach ($upgradePath in $upgradePaths) {
         $upgrade = Join-Path $repo $upgradePath
         if (Test-Native git @('-C', $directory, 'apply', '--check', $upgrade)) {
             Invoke-Native git @('-C', $directory, 'apply', '--whitespace=nowarn', $upgrade)
             if (Test-Native git @('-C', $directory, 'apply', '--reverse', '--check', $patch)) {
-                Write-Output 'upgraded from v0.3.2.2'
+                Write-Output 'upgraded existing Android patch'
                 return
             }
         }
@@ -68,9 +68,12 @@ function Apply-SubmodulePatch([string]$submodule, [string]$patchPath, [string]$u
 
 # 2. Android patches in the pinned submodules.
 if (-not $SkipPlume) {
-    Apply-SubmodulePatch 'thirdparty\plume' 'android\patches\plume\0001-marathon-android.patch' 'android\patches\plume\0002-upgrade-v0.3.2.2.patch'
+    Apply-SubmodulePatch 'thirdparty\plume' 'android\patches\plume\0001-marathon-android.patch' @(
+        'android\patches\plume\0003-upgrade-v0.3.3.patch',
+        'android\patches\plume\0002-upgrade-v0.3.2.2.patch'
+    )
     Apply-SubmodulePatch 'tools\XenonRecomp' 'android\patches\xenonrecomp\0001-merge-rounding-overrides.patch'
-    Apply-SubmodulePatch 'tools\XenosRecomp' 'android\patches\xenosrecomp\0001-android-shader-variants.patch'
+    Apply-SubmodulePatch 'tools\XenosRecomp' 'android\patches\xenosrecomp\0001-android-shader-variants.patch' @('android\patches\xenosrecomp\0002-upgrade-v0.3.3.patch')
 }
 
 # 3. zlib for u8extract (the host tools are built without vcpkg).

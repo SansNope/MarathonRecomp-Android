@@ -1,0 +1,96 @@
+diff --git a/plume_render_interface.h b/plume_render_interface.h
+index 28e2b236d8a0cd6ea36c9132b6018b651428a5ef..529bc672d492bbbe7c9257f9feffb2452a17aca1 100644
+--- a/plume_render_interface.h
++++ b/plume_render_interface.h
+@@ -82,6 +82,7 @@ namespace plume {
+         // assume it was all allocated in one contiguous array. This allows efficient mapping between Vulkan and D3D12's descriptor models.
+ 
+         virtual ~RenderDescriptorSet() { }
++        virtual bool isValid() const { return true; }
+         virtual void setBuffer(uint32_t descriptorIndex, const RenderBuffer *buffer, uint64_t bufferSize = 0, const RenderBufferStructuredView *bufferStructuredView = nullptr, const RenderBufferFormattedView *bufferFormattedView = nullptr) = 0;
+         virtual void setTexture(uint32_t descriptorIndex, const RenderTexture *texture, RenderTextureLayout textureLayout, const RenderTextureView *textureView = nullptr) = 0;
+         virtual void setSampler(uint32_t descriptorIndex, const RenderSampler *sampler) = 0;
+diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+index 614c963eb22aa1d3dd9c7dba8191992268768d7f..380025ebbf7dd8cf99aca07d0690cb7329cc9b79 100644
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -1834,6 +1834,7 @@ namespace plume {
+         uint32_t maxVertexOutputComponents = 0;
+         uint32_t maxFragmentInputComponents = 0;
+         bool shaderClipDistance = false;
++        bool shaderInt64 = false;
+         bool fragmentStoresAndAtomics = false;
+         bool vertexPipelineStoresAndAtomics = false;
+ 
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+index 0df728b51b49e183bb3579264753256ead7e0772..9f1169f1ef0c8ba7345251772ba743c4680eadc3 100644
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -1032,6 +1032,9 @@ namespace plume {
+ 
+     // VulkanTexture
+ 
++    static constexpr VkImageUsageFlags SampledTextureUsage =
++        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
++
+     VulkanTexture::VulkanTexture(VulkanDevice *device, VulkanPool *pool, const RenderTextureDesc &desc) {
+         assert(device != nullptr);
+ 
+@@ -1051,7 +1054,7 @@ namespace plume {
+         imageInfo.arrayLayers = desc.arraySize;
+         imageInfo.samples = VkSampleCountFlagBits(desc.multisampling.sampleCount);
+         imageInfo.tiling = toVk(desc.textureArrangement);
+-        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
++        imageInfo.usage = SampledTextureUsage;
+         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+         imageInfo.usage |= (desc.flags & RenderTextureFlag::RENDER_TARGET) ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0;
+@@ -1978,6 +1981,9 @@ namespace plume {
+         }
+ 
+         setLayout = new VulkanDescriptorSetLayout(device, desc);
++        if (setLayout->vk == VK_NULL_HANDLE) {
++            return;
++        }
+ 
+         descriptorPool = createDescriptorPool(device, typeCounts, desc.lastRangeIsBoundless);
+         if (descriptorPool == VK_NULL_HANDLE) {
+@@ -4736,6 +4742,7 @@ namespace plume {
+         capabilities.maxVertexOutputComponents = physicalDeviceProperties.limits.maxVertexOutputComponents;
+         capabilities.maxFragmentInputComponents = physicalDeviceProperties.limits.maxFragmentInputComponents;
+         capabilities.shaderClipDistance = deviceFeatures.features.shaderClipDistance;
++        capabilities.shaderInt64 = deviceFeatures.features.shaderInt64;
+         capabilities.fragmentStoresAndAtomics = deviceFeatures.features.fragmentStoresAndAtomics;
+         capabilities.vertexPipelineStoresAndAtomics = deviceFeatures.features.vertexPipelineStoresAndAtomics;
+         capabilities.textureCompressionBC = deviceFeatures.features.textureCompressionBC;
+@@ -5038,12 +5045,12 @@ namespace plume {
+     }
+ 
+     RenderSampleCounts VulkanDevice::getSampleCountsSupported(RenderFormat format) const {
+-        if (RenderFormatIsDepth(format)) {
+-            return RenderSampleCounts(physicalDeviceProperties.limits.framebufferDepthSampleCounts);
+-        }
+-        else {
+-            return RenderSampleCounts(physicalDeviceProperties.limits.framebufferColorSampleCounts);
+-        }
++        const VkImageUsageFlags attachmentUsage = RenderFormatIsDepth(format)
++            ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
++        VkImageFormatProperties properties = {};
++        const VkResult result = vkGetPhysicalDeviceImageFormatProperties(physicalDevice, toVk(format),
++            VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, SampledTextureUsage | attachmentUsage, 0, &properties);
++        return result == VK_SUCCESS ? RenderSampleCounts(properties.sampleCounts) : 0;
+     }
+ 
+     RenderFormatSupport VulkanDevice::getFormatSupport(RenderFormat format) const {
+diff --git a/plume_vulkan.h b/plume_vulkan.h
+index 44ccdbb2a3201f9c6b4d97c05d89ea4e4737be16..3e6e5d9c184be089339eaa24a10f48d2a116bb32 100644
+--- a/plume_vulkan.h
++++ b/plume_vulkan.h
+@@ -215,6 +215,7 @@ namespace plume {
+ 
+         VulkanDescriptorSet(VulkanDevice *device, const RenderDescriptorSetDesc &desc);
+         ~VulkanDescriptorSet() override;
++        bool isValid() const override { return vk != VK_NULL_HANDLE; }
+         void setBuffer(uint32_t descriptorIndex, const RenderBuffer *buffer, uint64_t bufferSize, const RenderBufferStructuredView *bufferStructuredView, const RenderBufferFormattedView *bufferFormattedView) override;
+         void setTexture(uint32_t descriptorIndex, const RenderTexture *texture, RenderTextureLayout textureLayout, const RenderTextureView *textureView) override;
+         void setSampler(uint32_t descriptorIndex, const RenderSampler *sampler) override;

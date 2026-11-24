@@ -2040,8 +2040,19 @@ static void ProcSetRenderState(const RenderCommand& cmd)
     }
     case D3DRS_CLIPPLANEENABLE:
     {
-        // HACK: Only check for clip pane 0
-        SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.clipPlaneEnabled, (value & 1) == 1);
+        // The game uses clip plane 0.
+        const bool enabled = (value & 1) != 0;
+        if (g_useSoftwareClip)
+        {
+            const uint32_t specConstants = (g_pipelineState.specConstants & ~SPEC_CONSTANT_CLIP_PLANE) |
+                (enabled ? SPEC_CONSTANT_CLIP_PLANE : 0);
+            SetDirtyValue(g_dirtyStates.pipelineState, g_pipelineState.specConstants, specConstants);
+        }
+        else
+        {
+            SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.clipPlaneEnabled, enabled);
+        }
+        break;
     }
     }
 }
@@ -2210,7 +2221,15 @@ struct FixedDescriptorSets
             return existing->second;
 
         if (next == sets.size())
-            sets.push_back(builder.create(g_device.get()));
+        {
+            auto set = builder.create(g_device.get());
+            if (set == nullptr || !set->isValid())
+            {
+                LOG_ERROR("Could not allocate a fixed Vulkan descriptor set.");
+                return nullptr;
+            }
+            sets.push_back(std::move(set));
+        }
 
         auto* set = sets[next++].get();
         writeDescriptors(*set);
@@ -2256,9 +2275,9 @@ static RenderDescriptorSet* GetFixedTextureSet(const uint32_t* indices, uint32_t
     });
 }
 
-static void BindFixedTexture(RenderCommandList& list, uint32_t index)
+static RenderDescriptorSet* GetFixedTextureSetForPass(uint32_t index)
 {
-    list.setGraphicsDescriptorSet(GetFixedTextureSet(&index, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D, true), 0);
+    return GetFixedTextureSet(&index, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D, true);
 }
 
 static RenderDescriptorSet* GetFixedSamplerSet(const uint32_t* indices)
@@ -3313,9 +3332,10 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
         if (!deviceInfo.driverName.empty() || !deviceInfo.driverInfo.empty())
             LOGF("GPU driver: \"{}\" \"{}\".", deviceInfo.driverName, deviceInfo.driverInfo);
 
-        LOGF("GPU limits: vertexAttributes={} vertexBindings={} clipDistance={} fragmentStoresAndAtomics={} vertexPipelineStoresAndAtomics={}.",
+        LOGF("GPU limits: vertexAttributes={} vertexBindings={} clipDistance={} fragmentStoresAndAtomics={} vertexPipelineStoresAndAtomics={} shaderInt64={} maxVertexOutputComponents={} maxFragmentInputComponents={}.",
             g_capabilities.maxVertexInputAttributes, g_capabilities.maxVertexInputBindings, g_capabilities.shaderClipDistance,
-            g_capabilities.fragmentStoresAndAtomics, g_capabilities.vertexPipelineStoresAndAtomics);
+            g_capabilities.fragmentStoresAndAtomics, g_capabilities.vertexPipelineStoresAndAtomics, g_capabilities.shaderInt64,
+            g_capabilities.maxVertexOutputComponents, g_capabilities.maxFragmentInputComponents);
 
         LOGF("GPU features: descriptorSets={} descriptorIndexing={} scalarBlockLayout={} bufferDeviceAddress={} BC={} ETC2={} mirrorClampToEdge={} presentWait={} triangleFan={} sampledImages={} samplers={} maxTexture={} VRAM={} MiB.",
             g_capabilities.maxBoundDescriptorSets, g_capabilities.descriptorIndexing, g_capabilities.scalarBlockLayout, g_capabilities.bufferDeviceAddress,
@@ -3480,8 +3500,12 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     }
 
     const RenderSampleCounts colourSampleCount = g_device->getSampleCountsSupported(RenderFormat::R16G16B16A16_FLOAT);
-    const RenderSampleCounts depthSampleCount  = g_device->getSampleCountsSupported(RenderFormat::D32_FLOAT);
+    const RenderSampleCounts depthSampleCount  = g_device->getSampleCountsSupported(RenderFormat::D32_FLOAT_S8_UINT);
     const RenderSampleCounts commonSampleCount = colourSampleCount & depthSampleCount;
+#ifdef __ANDROID__
+    LOGF("GPU sample counts: RGBA16F=0x{:X} D32F_S8=0x{:X} common=0x{:X}.",
+        colourSampleCount, depthSampleCount, commonSampleCount);
+#endif
 
     // Disable specific MSAA levels if they are not supported.
     if ((commonSampleCount & RenderSampleCount::COUNT_2) == 0)
@@ -3792,8 +3816,15 @@ bool Video::CreateHostDevice(const char* sdlVideoDriver, bool graphicsApiRetry)
     g_resolveMsaaColorShaders[1] = CREATE_SHADER(resolve_msaa_color_4x);
     g_resolveMsaaColorShaders[2] = CREATE_SHADER(resolve_msaa_color_8x);
 
+    constexpr RenderSampleCounts resolveSampleCounts[] = {
+        RenderSampleCount::COUNT_2, RenderSampleCount::COUNT_4, RenderSampleCount::COUNT_8
+    };
+    static_assert(std::size(resolveSampleCounts) == std::size(g_resolveMsaaDepthPipelines));
     for (size_t i = 0; i < std::size(g_resolveMsaaDepthPipelines); i++)
     {
+        if ((depthSampleCount & resolveSampleCounts[i]) == 0)
+            continue;
+
         std::unique_ptr<RenderShader> pixelShader;
         switch (i)
         {
@@ -4019,7 +4050,7 @@ static void LockTextureRect(GuestTexture* texture, uint32_t, GuestLockedRect* lo
     lockedRect->bits = g_memory.MapVirtual(texture->mappedMemory);
 }
 
-static void UnlockTextureRect(GuestTexture* texture) 
+static void UnlockTextureRect(GuestTexture* texture)
 {
     assert(std::this_thread::get_id() == g_presentThreadId);
 
@@ -4780,6 +4811,10 @@ static void SetFramebuffer(GuestSurface *renderTarget, GuestSurface *depthStenci
 
 static void ProcDrawImGui(const RenderCommand& cmd)
 {
+    auto* fixedSamplerSet = g_useFixedDescriptors ? GetFixedSamplerSet(nullptr) : nullptr;
+    if (g_useFixedDescriptors && fixedSamplerSet == nullptr)
+        return;
+
     g_commandLists[g_frame]->setRenderPassLabel(1);
 
     // Make sure the backbuffer is the current target.
@@ -4792,8 +4827,8 @@ static void ProcDrawImGui(const RenderCommand& cmd)
 
     commandList->setGraphicsPipelineLayout(g_imPipelineLayout.get());
     commandList->setPipeline(pipeline);
-    if (g_useFixedDescriptors)
-        commandList->setGraphicsDescriptorSet(GetFixedSamplerSet(nullptr), 1);
+    if (fixedSamplerSet != nullptr)
+        commandList->setGraphicsDescriptorSet(fixedSamplerSet, 1);
     else
     {
         commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
@@ -4911,7 +4946,12 @@ static void ProcDrawImGui(const RenderCommand& cmd)
                 }
 
                 if (g_useFixedDescriptors)
-                    BindFixedTexture(*commandList, descriptorIndex & 0x7FFFFFFF);
+                {
+                    auto* set = GetFixedTextureSetForPass(descriptorIndex & 0x7FFFFFFF);
+                    if (set == nullptr)
+                        continue;
+                    commandList->setGraphicsDescriptorSet(set, 0);
+                }
 
                 setPushConstants(&pushConstants.texture2DDescriptorIndex, &descriptorIndex, sizeof(descriptorIndex));
 
@@ -5567,7 +5607,10 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
     if (g_swapChainValid)
     {
         auto swapChainTexture = g_swapChain->getTexture(g_backBufferIndex);
-        if (g_backBuffer->texture == g_intermediaryBackBufferTexture.get())
+        const bool needsGammaPass = g_backBuffer->texture == g_intermediaryBackBufferTexture.get();
+        auto* fixedSet = needsGammaPass && g_useFixedDescriptors
+            ? GetFixedTextureSetForPass(g_intermediaryBackBufferTextureDescriptorIndex) : nullptr;
+        if (needsGammaPass && (!g_useFixedDescriptors || fixedSet != nullptr))
         {
             struct
             {
@@ -5625,10 +5668,7 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
             commandList->barriers(RenderBarrierStage::GRAPHICS, srcBarriers, std::size(srcBarriers));
             commandList->setGraphicsPipelineLayout(g_pipelineLayout.get());
             commandList->setPipeline(g_gammaCorrectionPipeline.get());
-            if (g_useFixedDescriptors)
-                BindFixedTexture(*commandList, g_intermediaryBackBufferTextureDescriptorIndex);
-            else
-                commandList->setGraphicsDescriptorSet(g_textureDescriptorSet.get(), 0);
+            commandList->setGraphicsDescriptorSet(g_useFixedDescriptors ? fixedSet : g_textureDescriptorSet.get(), 0);
             SetRootDescriptor(g_uploadAllocators[g_frame].allocate<false>(&constants, sizeof(constants), 0x100), 2);
             commandList->setFramebuffer(framebuffer.get());
             // The draw below writes every pixel of the swap chain image, so its old contents are
@@ -5639,6 +5679,12 @@ static void ProcExecuteCommandList(const RenderCommand& cmd)
             commandList->setScissors(RenderRect(0, 0, swapChainTextureWidth, swapChainTextureHeight));
             commandList->drawInstanced(3, 1, 0, 0);
             commandList->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(swapChainTexture, RenderTextureLayout::PRESENT));
+        }
+        else if (needsGammaPass)
+        {
+            // Finish the frame even if the gamma pass could not allocate its descriptor set.
+            g_commandLists[g_frame]->barriers(RenderBarrierStage::GRAPHICS,
+                RenderTextureBarrier(swapChainTexture, RenderTextureLayout::PRESENT));
         }
         else
         {
@@ -5871,7 +5917,11 @@ static GuestTexture* CreateTexture(uint32_t width, uint32_t height, uint32_t dep
 
     RenderTextureViewDesc viewDesc;
     viewDesc.format = desc.format;
-    viewDesc.dimension = texture->type == ResourceType::VolumeTexture ? RenderTextureViewDimension::TEXTURE_3D : RenderTextureViewDimension::TEXTURE_2D;
+    viewDesc.dimension = RenderTextureViewDimension::TEXTURE_2D;
+    if (texture->type == ResourceType::VolumeTexture)
+        viewDesc.dimension = RenderTextureViewDimension::TEXTURE_3D;
+    else if (g_backend == Backend::VULKAN && texture->type == ResourceType::ArrayTexture && desc.arraySize > 1)
+        viewDesc.dimension = RenderTextureViewDimension::TEXTURE_2D_ARRAY;
     viewDesc.mipLevels = levels;
 
     switch (format)
@@ -6279,7 +6329,7 @@ static bool PopulateBarriersForStretchRect(GuestSurface* renderTarget, GuestSurf
     return addedAny;
 }
 
-static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestSurface* depthStencil)
+static bool ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestSurface* depthStencil)
 {
     auto& commandList = g_commandLists[g_frame];
 
@@ -6289,25 +6339,21 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
         {
             const bool multiSampling = surface->sampleCount != RenderSampleCount::COUNT_1;
             const bool isDepthStencil = RenderFormatIsDepth(surface->format);
+            const bool shaderResolve = !multiSampling || (isDepthStencil && !g_capabilities.resolveModes);
+            auto* fixedSet = shaderResolve && g_useFixedDescriptors ? GetFixedTextureSetForPass(surface->descriptorIndex) : nullptr;
+            if (shaderResolve && g_useFixedDescriptors && fixedSet == nullptr)
+                return false;
 
             for (const auto [texture, slice] : surface->destinationTextures)
             {
-                bool shaderResolve = true;
-
-                if (multiSampling)
+                if (!shaderResolve)
                 {
-                    if (!isDepthStencil || g_capabilities.resolveModes)
-                    {
-                        if (isDepthStencil)
-                            commandList->resolveTextureRegion(texture->texture, 0, 0, surface->texture, nullptr, RenderResolveMode::MIN);
-                        else
-                            commandList->resolveTexture(texture->texture, surface->texture);
-
-                        shaderResolve = false;
-                    }
+                    if (isDepthStencil)
+                        commandList->resolveTextureRegion(texture->texture, 0, 0, surface->texture, nullptr, RenderResolveMode::MIN);
+                    else
+                        commandList->resolveTexture(texture->texture, surface->texture);
                 }
-
-                if (shaderResolve)
+                else
                 {
                     RenderPipeline* pipeline = nullptr;
 
@@ -6380,6 +6426,22 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
                         }
                     }
 
+                    if (pipeline == nullptr || !pipeline->isValid())
+                    {
+                        static bool loggedInvalidCopyPipeline = false;
+                        if (!loggedInvalidCopyPipeline)
+                        {
+                            LOGF_ERROR("Surface copy pipeline unavailable (depth={}, source samples={}).",
+                                isDepthStencil, surface->sampleCount);
+                            loggedInvalidCopyPipeline = true;
+                        }
+                        std::erase_if(surface->destinationTextures, [surface](const auto& entry)
+                        {
+                            return entry.first->sourceSurface != surface;
+                        });
+                        return false;
+                    }
+
                     auto& framebuffer = texture->framebuffers[slice];
                     if (framebuffer == nullptr)
                     {
@@ -6387,8 +6449,8 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
                         {
                             RenderTextureViewDesc viewDesc;
                             viewDesc.format = texture->format;
-                            viewDesc.dimension = texture->viewDimension;
-                            viewDesc.mipLevels = texture->mipLevels;
+                            viewDesc.dimension = RenderTextureViewDimension::TEXTURE_2D;
+                            viewDesc.mipLevels = 1;
                             viewDesc.arrayIndex = slice;
                             viewDesc.arraySize = 1;
                             auto& view = texture->framebufferViews.emplace_back(texture->texture->createTextureView(viewDesc));
@@ -6415,8 +6477,8 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
                     commandList->setPipeline(pipeline);
                     commandList->setViewports(RenderViewport(0.0f, 0.0f, float(texture->width), float(texture->height), 0.0f, 1.0f));
                     commandList->setScissors(RenderRect(0, 0, texture->width, texture->height));
-                    if (g_useFixedDescriptors)
-                        BindFixedTexture(*commandList, surface->descriptorIndex);
+                    if (fixedSet != nullptr)
+                        commandList->setGraphicsDescriptorSet(fixedSet, 0);
                     else
                         commandList->setGraphicsPushConstants(0, &surface->descriptorIndex, 0, sizeof(uint32_t));
                     commandList->drawInstanced(3, 1, 0, 0);
@@ -6446,6 +6508,8 @@ static void ExecutePendingStretchRectCommands(GuestSurface* renderTarget, GuestS
             surface->destinationTextures.clear();
         }
     }
+
+    return true;
 }
 
 static void ProcExecutePendingStretchRectCommands(const RenderCommand& cmd)
@@ -6465,8 +6529,8 @@ static void ProcExecutePendingStretchRectCommands(const RenderCommand& cmd)
 
         for (const auto surface : g_pendingSurfaceCopies)
         {
-            if (!RenderFormatIsDepth(surface->format))
-                ExecutePendingStretchRectCommands(surface, nullptr);
+            if (!RenderFormatIsDepth(surface->format) && !ExecutePendingStretchRectCommands(surface, nullptr))
+                return;
 
             for (const auto [texture, _] : surface->destinationTextures)
                 texture->sourceSurface = nullptr;
@@ -6586,7 +6650,7 @@ static bool SharesStorage(const GuestSurface* lhs, const GuestSurface* rhs)
     return lhs != nullptr && rhs != nullptr && lhs->texture == rhs->texture;
 }
 
-static void FlushPendingCopiesForAliasedStorage(GuestSurface* renderTarget, GuestSurface* depthStencil)
+static bool FlushPendingCopiesForAliasedStorage(GuestSurface* renderTarget, GuestSurface* depthStencil)
 {
     bool foundAny = false;
 
@@ -6608,17 +6672,21 @@ static void FlushPendingCopiesForAliasedStorage(GuestSurface* renderTarget, Gues
             if (SharesStorage(surface, renderTarget) || SharesStorage(surface, depthStencil))
             {
                 const bool isDepthStencil = RenderFormatIsDepth(surface->format);
-                ExecutePendingStretchRectCommands(isDepthStencil ? nullptr : surface, isDepthStencil ? surface : nullptr);
+                if (!ExecutePendingStretchRectCommands(isDepthStencil ? nullptr : surface, isDepthStencil ? surface : nullptr))
+                    return false;
             }
         }
     }
+
+    return true;
 }
 
 static void ProcClear(const RenderCommand& cmd)
 {
     const auto& args = cmd.clear;
 
-    FlushPendingCopiesForAliasedStorage(g_renderTarget, g_depthStencil);
+    if (!FlushPendingCopiesForAliasedStorage(g_renderTarget, g_depthStencil))
+        return;
 
     AddBarrier(g_renderTarget, RenderTextureLayout::COLOR_WRITE);
     AddBarrier(g_depthStencil, RenderTextureLayout::DEPTH_WRITE);
@@ -6810,7 +6878,9 @@ static void SetTextureInRenderThread(uint32_t index, GuestTexture* texture)
         viewDimension == RenderTextureViewDimension::TEXTURE_2D ? texture->descriptorIndex : TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D);
 
     uint32_t arrayDescriptorIndex = TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D_ARRAY;
-    if (texture != nullptr && viewDimension == RenderTextureViewDimension::TEXTURE_2D)
+    if (viewDimension == RenderTextureViewDimension::TEXTURE_2D_ARRAY)
+        arrayDescriptorIndex = texture->descriptorIndex;
+    else if (viewDimension == RenderTextureViewDimension::TEXTURE_2D)
         arrayDescriptorIndex = texture->arrayDescriptorIndex != NULL ? texture->arrayDescriptorIndex : texture->descriptorIndex;
 
     SetDirtyValue(g_dirtyStates.sharedConstants, g_sharedConstants.texture2DArrayIndices[index], arrayDescriptorIndex);
@@ -7171,7 +7241,7 @@ static void SanitizePipelineState(PipelineState& pipelineState)
             pipelineState.vertexStrides[i] = 0;
     }
 
-    uint32_t specConstantsMask = 0;
+    uint32_t specConstantsMask = g_useSoftwareClip ? SPEC_CONSTANT_CLIP_PLANE : 0;
     if (pipelineState.vertexShader->shaderCacheEntry != nullptr)
         specConstantsMask |= pipelineState.vertexShader->shaderCacheEntry->specConstantsMask;
 
@@ -7833,7 +7903,7 @@ static bool CanDrawWithPipelineState(const char* draw, std::atomic<uint32_t>& sk
     return false;
 }
 
-static void FlushRenderStateForRenderThread()
+static bool FlushRenderStateForRenderThread()
 {
     auto renderTarget = g_pipelineState.colorWriteEnable ? g_renderTarget : nullptr;
     auto depthStencil = g_pipelineState.zEnable || g_pipelineState.stencilEnable ? g_depthStencil : nullptr;
@@ -7892,21 +7962,24 @@ static void FlushRenderStateForRenderThread()
     if (foundAny)
     {
         FlushBarriers();
-        ExecutePendingStretchRectCommands(renderTarget, depthStencil);
+        if (!ExecutePendingStretchRectCommands(renderTarget, depthStencil))
+            return false;
 
         for (const auto surface : g_pendingSurfaceCopies)
         {
             if (aliasesBoundStorage(surface))
             {
                 bool isDepthStencil = RenderFormatIsDepth(surface->format);
-                ExecutePendingStretchRectCommands(isDepthStencil ? nullptr : surface, isDepthStencil ? surface : nullptr);
+                if (!ExecutePendingStretchRectCommands(isDepthStencil ? nullptr : surface, isDepthStencil ? surface : nullptr))
+                    return false;
             }
         }
 
         for (const auto surface : g_pendingResolves)
         {
             bool isDepthStencil = RenderFormatIsDepth(surface->format);
-            ExecutePendingStretchRectCommands(isDepthStencil ? nullptr : surface, isDepthStencil ? surface : nullptr);
+            if (!ExecutePendingStretchRectCommands(isDepthStencil ? nullptr : surface, isDepthStencil ? surface : nullptr))
+                return false;
         }
     }
 
@@ -7979,10 +8052,17 @@ static void FlushRenderStateForRenderThread()
 
     if (g_useFixedDescriptors)
     {
-        commandList->setGraphicsDescriptorSet(GetFixedTextureSet(g_sharedConstants.texture2DIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D), 0);
-        commandList->setGraphicsDescriptorSet(GetFixedTextureSet(g_sharedConstants.texture2DArrayIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D_ARRAY), 1);
-        commandList->setGraphicsDescriptorSet(GetFixedTextureSet(g_sharedConstants.textureCubeIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_CUBE), 2);
-        commandList->setGraphicsDescriptorSet(GetFixedSamplerSet(g_sharedConstants.samplerIndices), 3);
+        RenderDescriptorSet* sets[] = {
+            GetFixedTextureSet(g_sharedConstants.texture2DIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D),
+            GetFixedTextureSet(g_sharedConstants.texture2DArrayIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_2D_ARRAY),
+            GetFixedTextureSet(g_sharedConstants.textureCubeIndices, TEXTURE_DESCRIPTOR_NULL_TEXTURE_CUBE),
+            GetFixedSamplerSet(g_sharedConstants.samplerIndices),
+        };
+        if (std::find(std::begin(sets), std::end(sets), nullptr) != std::end(sets))
+            return false;
+
+        for (uint32_t i = 0; i < std::size(sets); ++i)
+            commandList->setGraphicsDescriptorSet(sets[i], i);
     }
 
     if (g_dirtyStates.vertexStreamFirst <= g_dirtyStates.vertexStreamLast)
@@ -7998,6 +8078,7 @@ static void FlushRenderStateForRenderThread()
         commandList->setIndexBuffer(&g_indexBufferView);
 
     g_dirtyStates = DirtyStates(false);
+    return true;
 }
 
 static RenderPrimitiveTopology ConvertPrimitiveType(uint32_t primitiveType)
@@ -8052,7 +8133,8 @@ static void ProcDrawPrimitive(const RenderCommand& cmd)
 
     SetPrimitiveType(args.primitiveType);
 
-    FlushRenderStateForRenderThread();
+    if (!FlushRenderStateForRenderThread())
+        return;
 
     auto& commandList = g_commandLists[g_frame];
     commandList->drawInstanced(args.primitiveCount, 1, args.startVertex, 0);
@@ -8082,7 +8164,8 @@ static void ProcDrawIndexedPrimitive(const RenderCommand& cmd)
         return;
 
     SetPrimitiveType(args.primitiveType);
-    FlushRenderStateForRenderThread();
+    if (!FlushRenderStateForRenderThread())
+        return;
 
     g_commandLists[g_frame]->drawIndexedInstanced(args.primCount, 1, args.startIndex, args.baseVertexIndex, 0);
 }
@@ -8129,7 +8212,8 @@ static void ProcDrawPrimitiveUP(const RenderCommand& cmd)
     else if (!g_capabilities.triangleFan && args.primitiveType == D3DPT_TRIANGLEFAN)
         indexCount = g_triangleFanIndexData.prepare(args.primitiveCount);
 
-    FlushRenderStateForRenderThread();
+    if (!FlushRenderStateForRenderThread())
+        return;
 
     if (indexCount != 0)
         g_commandLists[g_frame]->drawIndexedInstanced(indexCount, 1, 0, 0, 0);

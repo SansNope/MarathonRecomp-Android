@@ -61,7 +61,7 @@ If PowerShell refuses to run the scripts, allow local scripts for your user acco
 This script:
 
 1. initialises the git submodules;
-2. applies the patches in `android/patches/` to Plume, XenonRecomp, and XenosRecomp. Existing v0.3.2.2 Plume trees use the incremental upgrade patch. Run `Build-HostTools.ps1` again after upgrading to v0.3.3 so XenosRecomp generates the Android shader variants;
+2. applies the patches in `android/patches/` to Plume, XenonRecomp, and XenosRecomp. Existing Plume trees patched for v0.3.2.2 and submodules patched for v0.3.3 can be updated in place. Run `Build-HostTools.ps1` again after upgrading to v0.3.4 to regenerate the Vulkan shader variants;
 3. downloads zlib 1.3.2 (checked by SHA-512) for the host tools;
 4. checks out vcpkg at `7087dcfb` and applies the official `thirdparty/ffmpeg-core/ffmpeg.patch`, which adds the Xbox 360 XMA decoder (XMAFRAMES) to FFmpeg. On Windows the nested patch can get CRLF line endings; the script converts it to LF and checks its SHA-256.
 

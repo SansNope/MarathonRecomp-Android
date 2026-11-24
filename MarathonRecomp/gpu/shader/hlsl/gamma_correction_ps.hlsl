@@ -2,14 +2,14 @@
 
 #ifdef __spirv__
 
-#define g_Gamma vk::RawBufferLoad<float>(g_PushConstants.SharedConstants + 0)
+#define g_Gamma LOAD_BUFFER_FLOAT(g_PushConstants.SharedConstants, 0)
 #define g_TextureDescriptorIndex MARATHON_GUEST_DESCRIPTOR_INDEX(0, 4)
 
-#define g_ViewportOffset vk::RawBufferLoad<int2>(g_PushConstants.SharedConstants + 8)
-#define g_ViewportSize vk::RawBufferLoad<int2>(g_PushConstants.SharedConstants + 16)
+#define g_ViewportOffset LOAD_BUFFER_INT2(g_PushConstants.SharedConstants, 8)
+#define g_ViewportSize LOAD_BUFFER_INT2(g_PushConstants.SharedConstants, 16)
 
-#define g_SwapChainSize vk::RawBufferLoad<int2>(g_PushConstants.SharedConstants + 24)
-#define g_PreRotation vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + 32)
+#define g_SwapChainSize LOAD_BUFFER_INT2(g_PushConstants.SharedConstants, 24)
+#define g_PreRotation LOAD_BUFFER_UINT(g_PushConstants.SharedConstants, 32)
 
 #else
 
