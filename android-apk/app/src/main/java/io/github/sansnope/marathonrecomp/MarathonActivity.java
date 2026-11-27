@@ -107,47 +107,30 @@ public class MarathonActivity extends SDLActivity {
         return 60.0f;
     }
 
-    // Match the display panel mode to the active FPS limit: keep ~60 Hz when capped at 60 FPS
-    // to save power and avoid non-integer judder, and unlock high refresh rate modes above 60 FPS.
     private void applyPreferredRefreshRate(float targetFps) {
         try {
             Display display = getWindowManager().getDefaultDisplay();
             Display.Mode current = display.getMode();
-            Display.Mode best = current;
-            if (targetFps <= 60.5f) {
-                float bestDelta = Float.MAX_VALUE;
-                for (Display.Mode mode : display.getSupportedModes()) {
-                    if (mode.getPhysicalWidth() != current.getPhysicalWidth() ||
-                        mode.getPhysicalHeight() != current.getPhysicalHeight()) {
-                        continue;
-                    }
-                    float delta = Math.abs(mode.getRefreshRate() - targetFps);
-                    if (delta < bestDelta) {
-                        bestDelta = delta;
-                        best = mode;
-                    }
+            Display.Mode highest = current;
+            Display.Mode smallestAboveTarget = null;
+            for (Display.Mode mode : display.getSupportedModes()) {
+                if (mode.getPhysicalWidth() != current.getPhysicalWidth() ||
+                    mode.getPhysicalHeight() != current.getPhysicalHeight()) {
+                    continue;
                 }
-            } else {
-                float maxRate = 0.0f;
-                Display.Mode highest = current;
-                Display.Mode smallestAboveTarget = null;
-                for (Display.Mode mode : display.getSupportedModes()) {
-                    if (mode.getPhysicalWidth() != current.getPhysicalWidth() ||
-                        mode.getPhysicalHeight() != current.getPhysicalHeight()) {
-                        continue;
-                    }
-                    float rate = mode.getRefreshRate();
-                    if (rate > maxRate) {
-                        maxRate = rate;
-                        highest = mode;
-                    }
-                    if (rate + 0.5f >= targetFps &&
-                        (smallestAboveTarget == null || rate < smallestAboveTarget.getRefreshRate())) {
-                        smallestAboveTarget = mode;
-                    }
+                float rate = mode.getRefreshRate();
+                if (rate > highest.getRefreshRate()) {
+                    highest = mode;
                 }
-                best = smallestAboveTarget != null ? smallestAboveTarget : highest;
+                if (rate + 0.5f >= targetFps &&
+                    (smallestAboveTarget == null || rate < smallestAboveTarget.getRefreshRate())) {
+                    smallestAboveTarget = mode;
+                }
             }
+            // A fixed 60 Hz panel mode can leave the FIFO swapchain waiting for images at a
+            // 60 FPS game cap. Request the fastest mode at this cap, as releases before v0.3.5 did.
+            Display.Mode best = targetFps > 60.5f && smallestAboveTarget != null
+                    ? smallestAboveTarget : highest;
             WindowManager.LayoutParams params = getWindow().getAttributes();
             if (params.preferredDisplayModeId != best.getModeId()) {
                 params.preferredDisplayModeId = best.getModeId();
