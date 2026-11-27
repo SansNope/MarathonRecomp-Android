@@ -70,10 +70,14 @@ function Apply-SubmodulePatch([string]$submodule, [string]$patchPath, [string[]]
 if (-not $SkipPlume) {
     Apply-SubmodulePatch 'thirdparty\plume' 'android\patches\plume\0001-marathon-android.patch' @(
         'android\patches\plume\0003-upgrade-v0.3.3.patch',
-        'android\patches\plume\0002-upgrade-v0.3.2.2.patch'
+        'android\patches\plume\0002-upgrade-v0.3.2.2.patch',
+        'android\patches\plume\0004-upgrade-v0.3.4.1.patch'
     )
     Apply-SubmodulePatch 'tools\XenonRecomp' 'android\patches\xenonrecomp\0001-merge-rounding-overrides.patch'
-    Apply-SubmodulePatch 'tools\XenosRecomp' 'android\patches\xenosrecomp\0001-android-shader-variants.patch' @('android\patches\xenosrecomp\0002-upgrade-v0.3.3.patch')
+    Apply-SubmodulePatch 'tools\XenosRecomp' 'android\patches\xenosrecomp\0001-android-shader-variants.patch' @(
+        'android\patches\xenosrecomp\0002-upgrade-v0.3.3.patch',
+        'android\patches\xenosrecomp\0003-upgrade-v0.3.4.1.patch'
+    )
 }
 
 # 3. zlib for u8extract (the host tools are built without vcpkg).

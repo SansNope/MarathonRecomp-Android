@@ -60,6 +60,7 @@ static constexpr ConfigDef<bool>* GAME_SETTINGS[] =
     &Config::DisableTitleInputDelay,
     &Config::RestoreContextualHUDColours,
     &Config::DisableKingdomValleyMist,
+    &Config::DisablePedestrianAnimationLOD,
 };
 
 static bool g_isClosingButtonWindow{};

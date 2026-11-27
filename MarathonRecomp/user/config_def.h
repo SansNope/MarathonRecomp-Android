@@ -133,10 +133,14 @@ CONFIG_DEFINE_HIDDEN("Codes", bool, DisableEdgeGrabLeftover, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, DisableKingdomValleyMist, false, false);
 CONFIG_DEFINE_HIDDEN("Codes", bool, DisableLowResolutionFontOnCustomUI, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, DisableMidairSpinningClaw, false, false);
+CONFIG_DEFINE_LOCALISED("Codes", bool, DisablePedestrianAnimationLOD, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, DisablePushState, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, DisableSandJump, false, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, DisableTitleInputDelay, false, false);
 CONFIG_DEFINE_HIDDEN("Codes", bool, EnableDebugMode, false, false);
+#ifdef MARATHON_RECOMP_GAMEPLAY_FIXES
+CONFIG_DEFINE_HIDDEN("Codes", bool, FixClimbJumpOff, true, false);
+#endif
 CONFIG_DEFINE_HIDDEN("Codes", bool, FixEnvironmentMaps, true, false);
 CONFIG_DEFINE_LOCALISED("Codes", bool, FixOmegaShotCollision, false, false);
 CONFIG_DEFINE_HIDDEN("Codes", bool, FixPowerUpJingleDuration, true, false);

@@ -15,6 +15,7 @@
     <string name="launcher_open_files">Open game folder</string>
     <string name="launcher_open_saves">Open saves folder</string>
     <string name="launcher_recheck">Check again</string>
+    <string name="launcher_verify_files">Verify game files</string>
     <string name="launcher_install_game">Install game / DLC (.zip / folder)</string>
     <string name="launcher_section_graphics">Graphics</string>
     <string name="launcher_graphics">Graphics</string>
@@ -48,6 +49,7 @@
     <string name="launcher_texture_cache">Cache transcoded textures (only GPUs without BC, e.g. Mali; up to 1 GB)</string>
     <string name="launcher_precise_limiter">Precise frame limiter (experiment)</string>
     <string name="launcher_open_logs">Open logs</string>
+    <string name="launcher_share_logs">Share log</string>
     <string name="launcher_recommended">Recommended settings</string>
     <string name="launcher_recommended_all">The listed settings are at their recommended values.</string>
     <string name="launcher_recommended_changed">Differ from the recommended settings: %1$s.</string>
@@ -56,6 +58,9 @@
     <string name="launcher_exit_running">The game is still running in the background. Exiting closes it, and unsaved progress is lost.</string>
     <string name="launcher_info">Info</string>
     <string name="launcher_info_title">About this port</string>
+    <string name="launcher_licenses">Licenses</string>
+    <string name="launcher_licenses_title">Third-party licenses</string>
+    <string name="launcher_licenses_files_header">Full license texts</string>
     <string name="launcher_info_text">The port was made by “SansNope” with the help of the Anthropic model “Opus 5.5”.\n\nA separate HUGE thank you to “ITSeny” for a big contribution to the project. Thanks to ITSeny\'s help, UnleashedRecomp-Android was brought to a polished state (he really did a lot, believe us). And thanks to his huge contribution, development of MarathonRecomp-Android went 10 times faster.\n\nAlso a huge thank you to every player who tests the port and sends feedback!\n\nWe are happy to use new technologies to give many people the chance to play these games on their mobile devices.\n\nThe app icon was taken from GameBanana; it was made by “GSNReboot”.\n\nThis is an unofficial Android port of another project from GitHub, MarathonRecomp: https://github.com/sonicnext-dev/MarathonRecomp</string>
     <string name="launcher_chip_game_ready">Game ready</string>
     <string name="launcher_chip_game_missing">Game not installed</string>
@@ -157,4 +162,20 @@
     <string name="error_copy_link">This installation contains a symbolic link that cannot be copied:\n%1$s</string>
     <string name="error_copy_verify">Copy verification failed. The current installation was kept. File:\n%1$s</string>
     <string name="error_copy_cancelled">Copy cancelled. The current installation was kept.</string>
+
+    <string name="verify_progress_title">Verifying game files…</string>
+    <string name="verify_progress_status">Checked %1$d / %2$d files (%3$s / %4$s)</string>
+    <string name="verify_done_title">Verification complete</string>
+    <string name="verify_done_ok">All %1$d files (%2$s) match known hashes.\nVerified DLC packs: %3$d / %4$d.</string>
+    <string name="verify_done_decrypted_note">\nNote: game/default.xex was skipped because decrypted/default.bin is used.</string>
+    <string name="verify_cancelled">Verification cancelled (%1$d / %2$d files checked).</string>
+    <string name="verify_issues_summary">Checked %1$d files (%2$s).\nMissing: %3$d, modified or corrupted: %4$d.</string>
+    <string name="verify_missing_header">Missing files:</string>
+    <string name="verify_mismatch_header">Hash mismatch:</string>
+    <string name="verify_more_items">…and %1$d more.</string>
+    <string name="error_verify_failed">Verification failed: %1$s</string>
+
+    <string name="share_logs_preparing">Packaging logs…</string>
+    <string name="share_logs_title">Share diagnostic logs</string>
+    <string name="error_share_logs">Could not share logs: %1$s</string>
 </resources>

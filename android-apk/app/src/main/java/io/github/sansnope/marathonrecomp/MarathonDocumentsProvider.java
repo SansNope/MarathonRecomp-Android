@@ -2,10 +2,13 @@ package io.github.sansnope.marathonrecomp;
 
 // Ported from UnleashedRecomp-Android 0.6.1 (org.libsdl.app.UnleashedDocumentsProvider).
 
+import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
+import android.net.Uri;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
+import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.DocumentsContract.Root;
 import android.provider.DocumentsProvider;
@@ -73,6 +76,16 @@ public final class MarathonDocumentsProvider extends DocumentsProvider {
     @Override
     public boolean onCreate() {
         return true;
+    }
+
+    static Uri buildTransferDocumentUri(Context context, File file) throws IOException {
+        File transferRoot = AppStorage.transferRoot(context);
+        if (transferRoot == null) {
+            throw new FileNotFoundException("External transfer directory is unavailable");
+        }
+        RootInfo root = new RootInfo(ROOT_TRANSFER, "", "", transferRoot);
+        String documentId = createDocumentId(root, file);
+        return DocumentsContract.buildDocumentUri(context.getPackageName() + ".documents", documentId);
     }
 
     @Override

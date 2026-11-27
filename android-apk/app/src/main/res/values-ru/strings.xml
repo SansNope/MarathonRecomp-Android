@@ -12,6 +12,7 @@
     <string name="launcher_open_files">Открыть папку игры</string>
     <string name="launcher_open_saves">Открыть папку сохранений</string>
     <string name="launcher_recheck">Проверить снова</string>
+    <string name="launcher_verify_files">Проверить целостность</string>
     <string name="launcher_install_game">Установить игру / DLC (.zip / папка)</string>
     <string name="launcher_section_graphics">Графика</string>
     <string name="launcher_graphics">Графика</string>
@@ -45,6 +46,7 @@
     <string name="launcher_texture_cache">Кэш перекодированных текстур (только GPU без BC, напр. Mali; до 1 ГБ)</string>
     <string name="launcher_precise_limiter">Точный лимитер кадров (эксперимент)</string>
     <string name="launcher_open_logs">Открыть логи</string>
+    <string name="launcher_share_logs">Поделиться логом</string>
     <string name="launcher_recommended">Рекомендуемые настройки</string>
     <string name="launcher_recommended_all">Перечисленные настройки имеют рекомендуемые значения.</string>
     <string name="launcher_recommended_changed">Отличаются от рекомендуемых: %1$s.</string>
@@ -53,6 +55,9 @@
     <string name="launcher_exit_running">Игра ещё работает в фоне. Выход закроет её, несохранённый прогресс будет потерян.</string>
     <string name="launcher_info">Инфо</string>
     <string name="launcher_info_title">О порте</string>
+    <string name="launcher_licenses">Лицензии</string>
+    <string name="launcher_licenses_title">Лицензии сторонних компонентов</string>
+    <string name="launcher_licenses_files_header">Полные тексты лицензий</string>
     <string name="launcher_info_text">Порт сделан «SansNope» с помощью модели от Anthropic «Opus 5.5».\n\nОтдельная ОГРОМНАЯ благодарность «ITSeny» за большой вклад в проект. Благодаря помощи «ITSeny» проект UnleashedRecomp-Android был доведён до ума (он сделал действительно очень много, поверьте). И благодаря его огромному вкладу разработка MarathonRecomp-Android пошла в 10 раз быстрее.\n\nТакже огромная благодарность всем игрокам, кто тестирует и отправляет feedback!\n\nМы рады с помощью новых технологий подарить многим возможность поиграть в эти игры на своих мобильных устройствах.\n\nИконка приложения взята с сайта GameBanana, её автор — «GSNReboot».\n\nЭто неофициальный порт на Android другого проекта с GitHub — MarathonRecomp: https://github.com/sonicnext-dev/MarathonRecomp</string>
     <string name="launcher_chip_game_ready">Игра готова</string>
     <string name="launcher_chip_game_missing">Игра не установлена</string>
@@ -154,4 +159,20 @@
     <string name="error_copy_link">Установка содержит символическую ссылку, которую нельзя скопировать:\n%1$s</string>
     <string name="error_copy_verify">Проверка копии не прошла. Текущая установка сохранена. Файл:\n%1$s</string>
     <string name="error_copy_cancelled">Копирование отменено. Текущая установка сохранена.</string>
+
+    <string name="verify_progress_title">Проверка файлов игры…</string>
+    <string name="verify_progress_status">Проверено файлов: %1$d из %2$d (%3$s из %4$s)</string>
+    <string name="verify_done_title">Проверка завершена</string>
+    <string name="verify_done_ok">Все %1$d файлов (%2$s) совпадают с эталонными хешами.\nПроверено пакетов DLC: %3$d из %4$d.</string>
+    <string name="verify_done_decrypted_note">\nПримечание: game/default.xex пропущен, так как используется decrypted/default.bin.</string>
+    <string name="verify_cancelled">Проверка отменена (проверено %1$d из %2$d файлов).</string>
+    <string name="verify_issues_summary">Проверено %1$d файлов (%2$s).\nОтсутствует: %3$d, изменено или повреждено: %4$d.</string>
+    <string name="verify_missing_header">Отсутствующие файлы:</string>
+    <string name="verify_mismatch_header">Несовпадение хеша:</string>
+    <string name="verify_more_items">…и ещё %1$d.</string>
+    <string name="error_verify_failed">Ошибка проверки: %1$s</string>
+
+    <string name="share_logs_preparing">Упаковка логов…</string>
+    <string name="share_logs_title">Отправить диагностические логи</string>
+    <string name="error_share_logs">Не удалось отправить логи: %1$s</string>
 </resources>

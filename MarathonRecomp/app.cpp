@@ -60,8 +60,8 @@ PPC_FUNC(sub_8262A568)
     pRenderConfig->Height = Video::s_viewportHeight;
 
     auto pAudioEngine = Sonicteam::AudioEngineXenon::GetInstance();
-    pAudioEngine->m_MusicVolume = Config::MusicVolume * Config::MasterVolume;
-    pAudioEngine->m_EffectsVolume = Config::EffectsVolume * Config::MasterVolume;
+    pAudioEngine->m_MusicVolume = Config::MusicVolume;
+    pAudioEngine->m_EffectsVolume = Config::EffectsVolume;
 
     LOGFN_UTILITY("Changed resolution: {}x{}", pRenderConfig->Width.get(), pRenderConfig->Height.get());
 
@@ -71,6 +71,32 @@ PPC_FUNC(sub_8262A568)
 
     InitPatches();
 }
+
+#ifdef __ANDROID__
+// Capture the archive vector around its two startup insertions.
+PPC_FUNC_IMPL(__imp__sub_822D9150);
+PPC_FUNC(sub_822D9150)
+{
+    const uint32_t caller = ctx.lr;
+    if (caller != 0x825EB2C0 && caller != 0x825EB330)
+    {
+        __imp__sub_822D9150(ctx, base);
+        return;
+    }
+
+    const auto* vector = reinterpret_cast<const be<uint32_t>*>(base + ctx.r3.u32);
+
+    const auto logVector = [&](const char* phase)
+    {
+        LOGF("Startup archive vector {} (caller={:#010x}): begin={:#010x} end={:#010x} limit={:#010x}.",
+            phase, caller, vector[1].get(), vector[2].get(), vector[3].get());
+    };
+
+    logVector("before");
+    __imp__sub_822D9150(ctx, base);
+    logVector("after");
+}
+#endif
 
 // Sonicteam::DocMarathonState::Update
 PPC_FUNC_IMPL(__imp__sub_825EA610);

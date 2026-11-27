@@ -23,7 +23,7 @@
 
 Нужно несколько гигабайт свободного места: папки сборки, vcpkg, FFmpeg и кэши Gradle лежат в `out/`.
 
-> В хотфиксе v0.3.4.1 для Android по умолчанию включено `MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP`. Для существующего каталога сборки с выключенной опцией передайте `-DMARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP=ON`, чтобы воспроизвести хотфикс.
+> На Android по умолчанию включено `MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP`. Начиная с v0.3.5, этот режим удаляет плоскости отсечения только на устройствах Vulkan без `shaderClipDistance`. Маркер `clip_distance_strip.enabled` принудительно включает удаление на любом устройстве.
 
 ### Файлы игры
 
@@ -63,7 +63,7 @@ notepad android\local.paths.json
 Скрипт:
 
 1. инициализирует git submodule;
-2. применяет патчи из `android/patches/` к Plume, XenonRecomp и XenosRecomp. Plume с патчем от v0.3.2.2 и сабмодули с патчами от v0.3.3 обновляются на месте. После перехода на v0.3.4 повторно запустите `Build-HostTools.ps1`, чтобы перегенерировать варианты Vulkan-шейдеров;
+2. применяет патчи из `android/patches/` к Plume, XenonRecomp и XenosRecomp. Действующие патчи Android для Plume и XenosRecomp обновляются на месте. После перехода на v0.3.5 повторно запустите `Build-HostTools.ps1`, чтобы перегенерировать варианты Vulkan-шейдеров;
 3. скачивает zlib 1.3.2 (проверка SHA-512) для инструментов хоста;
 4. получает vcpkg на коммите `7087dcfb` и применяет официальный `thirdparty/ffmpeg-core/ffmpeg.patch`, который добавляет в FFmpeg декодер XMA от Xbox 360 (XMAFRAMES). На Windows вложенный патч может получить переводы строк CRLF; скрипт переводит его в LF и сверяет SHA-256.
 

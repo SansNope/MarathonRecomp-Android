@@ -23,7 +23,7 @@ The result is a debug APK for **arm64-v8a, Android 10 (API 29) or newer**.
 
 Plan for several GB of free disk space: the build directories, vcpkg, FFmpeg and Gradle caches all live in `out/`.
 
-> The v0.3.4.1 Android hotfix enables `MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP` by default. For an existing build directory configured with this option disabled, pass `-DMARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP=ON` to reproduce the hotfix.
+> The Android default enables `MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP`. Starting with v0.3.5, this default strips clip distances only when the Vulkan device lacks `shaderClipDistance`. The `clip_distance_strip.enabled` marker forces stripping on any device.
 
 ### Game files
 
@@ -63,7 +63,7 @@ If PowerShell refuses to run the scripts, allow local scripts for your user acco
 This script:
 
 1. initialises the git submodules;
-2. applies the patches in `android/patches/` to Plume, XenonRecomp, and XenosRecomp. Existing Plume trees patched for v0.3.2.2 and submodules patched for v0.3.3 can be updated in place. Run `Build-HostTools.ps1` again after upgrading to v0.3.4 to regenerate the Vulkan shader variants;
+2. applies the patches in `android/patches/` to Plume, XenonRecomp, and XenosRecomp. Existing Android patches for Plume and XenosRecomp can be updated in place. Run `Build-HostTools.ps1` again after upgrading to v0.3.5 to regenerate the Vulkan shader variants;
 3. downloads zlib 1.3.2 (checked by SHA-512) for the host tools;
 4. checks out vcpkg at `7087dcfb` and applies the official `thirdparty/ffmpeg-core/ffmpeg.patch`, which adds the Xbox 360 XMA decoder (XMAFRAMES) to FFmpeg. On Windows the nested patch can get CRLF line endings; the script converts it to LF and checks its SHA-256.
 

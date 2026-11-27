@@ -1,7 +1,5 @@
 project("MarathonRecomp")
 
-option(MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP "Force the Android clip_distance_strip.enabled behavior" ON)
-
 if (WIN32)
     option(MARATHON_RECOMP_D3D12 "Add D3D12 support for rendering" ON)
 endif()
@@ -9,6 +7,8 @@ endif()
 if (APPLE)
     option(MARATHON_RECOMP_METAL "Add Metal support for rendering" ON)
 endif()
+
+option(MARATHON_RECOMP_FORCE_CLIP_DISTANCE_STRIP "Force the Android clip_distance_strip.enabled behavior" ON)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     option(MARATHON_RECOMP_FLATPAK "Configure the build for Flatpak compatibility." OFF)
@@ -115,6 +115,7 @@ elseif (ANDROID)
         "os/android/logger_android.cpp"
         "os/android/guest_waits_android.cpp"
         "os/android/media_android.cpp"
+        "os/android/native_math_android.cpp"
         "os/android/overlay_android.cpp"
         "os/android/performance_hint_android.cpp"
         "os/android/process_android.cpp"
@@ -506,6 +507,7 @@ file(MAKE_DIRECTORY ${HLSL_SHADERS_OUT_PATH})
 file(MAKE_DIRECTORY ${MSL_SHADERS_OUT_PATH})
 
 function(compile_shader FILE_PATH TARGET_NAME)
+    cmake_parse_arguments(PARSE_ARGV 2 SHADER "BUFFER_CONSTANTS;ANDROID_SINGLE_VARIANT" "" "")
     set(HLSL_FILE_PATH ${HLSL_SHADERS_IN_PATH}/${FILE_PATH}.hlsl)
     set(MSL_FILE_PATH ${MSL_SHADERS_IN_PATH}/${FILE_PATH}.metal)
     set(HLSL_FILE_OUT_PATH ${HLSL_SHADERS_OUT_PATH}/${FILE_PATH}.hlsl)
@@ -537,38 +539,51 @@ function(compile_shader FILE_PATH TARGET_NAME)
     list(APPEND HLSL_INCLUDES "${MARATHON_RECOMP_TOOLS_ROOT}/XenosRecomp/XenosRecomp/shader_common.h")
     add_custom_command(
         OUTPUT ${HLSL_FILE_OUT_PATH}.spirv.h
-        COMMAND ${DIRECTX_DXC_TOOL} -T ${TARGET_NAME} -HV 2021 -all-resources-bound -spirv -fvk-use-dx-layout ${ARGN} -DMARATHON_RECOMP -E shaderMain -Fh ${HLSL_FILE_OUT_PATH}.spirv.h ${HLSL_FILE_PATH} -Vn g_${HLSL_NAME}_spirv
+        COMMAND ${DIRECTX_DXC_TOOL} -T ${TARGET_NAME} -HV 2021 -all-resources-bound -spirv -fvk-use-dx-layout ${SHADER_UNPARSED_ARGUMENTS} -DMARATHON_RECOMP -E shaderMain -Fh ${HLSL_FILE_OUT_PATH}.spirv.h ${HLSL_FILE_PATH} -Vn g_${HLSL_NAME}_spirv
         DEPENDS ${HLSL_FILE_PATH} ${HLSL_INCLUDES}
         VERBATIM
     )
     target_sources(MarathonRecomp PRIVATE ${HLSL_FILE_OUT_PATH}.spirv.h)
-    if (ANDROID)
+    if (ANDROID AND NOT SHADER_ANDROID_SINGLE_VARIANT)
         add_custom_command(
             OUTPUT ${HLSL_FILE_OUT_PATH}.fixed.spirv.h
-            COMMAND ${DIRECTX_DXC_TOOL} -T ${TARGET_NAME} -HV 2021 -all-resources-bound -spirv -fvk-use-dx-layout ${ARGN} -DMARATHON_RECOMP -DMARATHON_FIXED_DESCRIPTORS -E shaderMain -Fh ${HLSL_FILE_OUT_PATH}.fixed.spirv.h ${HLSL_FILE_PATH} -Vn g_${HLSL_NAME}_fixed_spirv
+            COMMAND ${DIRECTX_DXC_TOOL} -T ${TARGET_NAME} -HV 2021 -all-resources-bound -spirv -fvk-use-dx-layout ${SHADER_UNPARSED_ARGUMENTS} -DMARATHON_RECOMP -DMARATHON_FIXED_DESCRIPTORS -E shaderMain -Fh ${HLSL_FILE_OUT_PATH}.fixed.spirv.h ${HLSL_FILE_PATH} -Vn g_${HLSL_NAME}_fixed_spirv
             DEPENDS ${HLSL_FILE_PATH} ${HLSL_INCLUDES}
             VERBATIM
         )
         target_sources(MarathonRecomp PRIVATE ${HLSL_FILE_OUT_PATH}.fixed.spirv.h)
+        if (SHADER_BUFFER_CONSTANTS)
+            add_custom_command(
+                OUTPUT ${HLSL_FILE_OUT_PATH}.buffer.spirv.h
+                COMMAND ${DIRECTX_DXC_TOOL} -T ${TARGET_NAME} -HV 2021 -all-resources-bound -spirv ${SHADER_UNPARSED_ARGUMENTS} -DMARATHON_RECOMP -DMARATHON_FIXED_DESCRIPTORS -DMARATHON_BUFFER_CONSTANTS -E shaderMain -Fh ${HLSL_FILE_OUT_PATH}.buffer.spirv.h ${HLSL_FILE_PATH} -Vn g_${HLSL_NAME}_buffer_spirv
+                DEPENDS ${HLSL_FILE_PATH} ${HLSL_INCLUDES}
+                VERBATIM
+            )
+            target_sources(MarathonRecomp PRIVATE ${HLSL_FILE_OUT_PATH}.buffer.spirv.h)
+        endif()
     endif()
 endfunction()
 
 function(compile_vertex_shader FILE_PATH)
-    compile_shader(${FILE_PATH} vs_6_0 -fvk-invert-y)
+    compile_shader(${FILE_PATH} vs_6_0 -fvk-invert-y ${ARGN})
 endfunction()
 
 function(compile_pixel_shader FILE_PATH)
-    compile_shader(${FILE_PATH} ps_6_0)
+    compile_shader(${FILE_PATH} ps_6_0 ${ARGN})
 endfunction()
 
-compile_pixel_shader(conditional_survey_ps)
+compile_pixel_shader(conditional_survey_ps BUFFER_CONSTANTS)
 compile_vertex_shader(copy_vs)
 compile_pixel_shader(copy_color_ps)
 compile_pixel_shader(copy_depth_ps)
-compile_vertex_shader(enhanced_burnout_blur_vs)
+compile_vertex_shader(enhanced_burnout_blur_vs BUFFER_CONSTANTS)
 compile_pixel_shader(enhanced_burnout_blur_ps)
 compile_pixel_shader(movie_ps)
-compile_pixel_shader(gamma_correction_ps)
+if (ANDROID)
+    compile_pixel_shader(gamma_correction_ps ANDROID_SINGLE_VARIANT -DMARATHON_ANDROID_GAMMA)
+else()
+    compile_pixel_shader(gamma_correction_ps)
+endif()
 compile_pixel_shader(imgui_ps)
 compile_vertex_shader(imgui_vs)
 compile_pixel_shader(resolve_msaa_color_2x)

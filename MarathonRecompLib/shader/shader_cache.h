@@ -7,9 +7,10 @@ struct ShaderCacheEntry
     const uint32_t dxilSize;
     const uint32_t spirvOffset;
     const uint32_t spirvSize;
-    // Android variants: fixed, software clip, and fixed with software clip.
-    const uint32_t androidSpirvOffsets[3];
-    const uint32_t androidSpirvSizes[3];
+    // Android variants: fixed, software clip, fixed with software clip,
+    // fixed with buffer constants, and fixed with buffer constants and software clip.
+    const uint32_t androidSpirvOffsets[5];
+    const uint32_t androidSpirvSizes[5];
     const uint32_t airOffset;
     const uint32_t airSize;
     const uint32_t specConstantsMask;

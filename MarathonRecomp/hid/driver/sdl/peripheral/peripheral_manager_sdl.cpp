@@ -4,6 +4,8 @@
 #include <hid/driver/sdl/peripheral/mouse_sdl.h>
 #ifdef __ANDROID__
 #include <hid/driver/sdl/peripheral/touch_sdl.h>
+#include <os/android/storage_android.h>
+#include <filesystem>
 #endif
 #include <hid/message/messages.h>
 #include <hid/peripheral/peripheral_manager.h>
@@ -59,7 +61,16 @@ namespace HID
         SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
         SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_PLAYER_LED, "1");
         SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
+#ifdef __ANDROID__
+        // SDL3's Android HIDAPI only uses Bluetooth for BLE Steam Controllers and triggers a
+        // runtime BLUETOOTH_CONNECT permission prompt on startup when enabled. Keep standard
+        // Android InputDevice Bluetooth gamepads active without prompting unless opted in.
+        std::error_code steamBleError;
+        const bool enableSteamBle = std::filesystem::exists(os::android::GetDataRoot() / "steam_controller_ble.enabled", steamBleError);
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, enableSteamBle ? "1" : "0");
+#else
         SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
+#endif
         SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAMDECK, "1");
         SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "1");
 

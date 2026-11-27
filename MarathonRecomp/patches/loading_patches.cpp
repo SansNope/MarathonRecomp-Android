@@ -1,5 +1,6 @@
 #include "loading_patches.h"
 #include <api/Marathon.h>
+#include <gpu/video.h>
 #include <user/config.h>
 #include <app.h>
 
@@ -47,6 +48,8 @@ PPC_FUNC(sub_824D7340)
 
 void DocMarathon_SetLoading_JoinThread_Prefix(PPCRegister& r31)
 {
+    Video::FlushPendingUploads();
+
     const auto pLoadingTask = GetLoadingTask(r31);
 
     if (!pLoadingTask)
@@ -60,6 +63,7 @@ void DocMarathon_SetLoading_JoinThread_Prefix(PPCRegister& r31)
 
 void DocMarathon_SetLoading_JoinThread_Postfix()
 {
+    Video::FlushPendingUploads();
     App::s_isLoading = false;
 }
 

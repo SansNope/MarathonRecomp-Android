@@ -1,0 +1,154 @@
+diff --git a/XenosRecomp/dxc_compiler.cpp b/XenosRecomp/dxc_compiler.cpp
+index 3386952b97be12d06140fbb8834d92667fd219fb..e3533c259da574cfc970ee7d51b7fa5d1bcb5ebd 100644
+--- a/XenosRecomp/dxc_compiler.cpp
++++ b/XenosRecomp/dxc_compiler.cpp
+@@ -11,7 +11,8 @@ DxcCompiler::~DxcCompiler()
+     dxcCompiler->Release();
+ }
+ 
+-IDxcBlob* DxcCompiler::compile(const std::string& shaderSource, bool compilePixelShader, bool compileLibrary, bool compileSpirv)
++IDxcBlob* DxcCompiler::compile(const std::string& shaderSource, bool compilePixelShader, bool compileLibrary, bool compileSpirv,
++    bool useSpirvDxLayout)
+ {
+     DxcBuffer source{};
+     source.Ptr = shaderSource.c_str();
+@@ -46,7 +47,8 @@ IDxcBlob* DxcCompiler::compile(const std::string& shaderSource, bool compilePixe
+     if (compileSpirv)
+     {
+         args[argCount++] = L"-spirv";
+-        args[argCount++] = L"-fvk-use-dx-layout";
++        if (useSpirvDxLayout)
++            args[argCount++] = L"-fvk-use-dx-layout";
+ 
+         if (!compilePixelShader)
+             args[argCount++] = L"-fvk-invert-y";
+diff --git a/XenosRecomp/dxc_compiler.h b/XenosRecomp/dxc_compiler.h
+index d49bd324e25b2859e6d034843dbf5c665cee0190..ecf62d08ac54eb203aaf0ae2167bf50c7065c306 100644
+--- a/XenosRecomp/dxc_compiler.h
++++ b/XenosRecomp/dxc_compiler.h
+@@ -7,5 +7,6 @@ struct DxcCompiler
+     DxcCompiler();
+     ~DxcCompiler();
+ 
+-    IDxcBlob* compile(const std::string& shaderSource, bool compilePixelShader, bool compileLibrary, bool compileSpirv);
++    IDxcBlob* compile(const std::string& shaderSource, bool compilePixelShader, bool compileLibrary, bool compileSpirv,
++        bool useSpirvDxLayout = true);
+ };
+diff --git a/XenosRecomp/main.cpp b/XenosRecomp/main.cpp
+index 0c2163056793a534cf496d13d3a6cda41288fa54..5e780dd66e219bbd7b55b115c2688abb9c94b60e 100644
+--- a/XenosRecomp/main.cpp
++++ b/XenosRecomp/main.cpp
+@@ -34,7 +34,8 @@ struct RecompiledShader
+     uint8_t* data = nullptr;
+     IDxcBlob* dxil = nullptr;
+     std::vector<uint8_t> spirv;
+-    std::vector<uint8_t> androidSpirv[3];
++    static constexpr size_t ANDROID_VARIANT_COUNT = 5;
++    std::vector<uint8_t> androidSpirv[ANDROID_VARIANT_COUNT];
+     std::vector<uint8_t> air;
+     uint32_t specConstantsMask = 0;
+ };
+@@ -59,9 +60,9 @@ void recompileShader(RecompiledShader& shader, const std::string_view include, s
+     shader.air = AirCompiler::compile(recompiler.out);
+ #endif
+ 
+-    auto compileSpirv = [&](const std::string& source, std::vector<uint8_t>& bytecode)
++    auto compileSpirv = [&](const std::string& source, std::vector<uint8_t>& bytecode, bool useDxLayout = true)
+     {
+-        IDxcBlob* spirv = dxcCompiler.compile(source, recompiler.isPixelShader, false, true);
++        IDxcBlob* spirv = dxcCompiler.compile(source, recompiler.isPixelShader, false, true, useDxLayout);
+         if (spirv == nullptr)
+             exit(EXIT_FAILURE);
+ 
+@@ -79,6 +80,10 @@ void recompileShader(RecompiledShader& shader, const std::string_view include, s
+         compileSpirv("#define MARATHON_SOFTWARE_CLIP 1\n" + recompiler.out, shader.androidSpirv[1]);
+         compileSpirv("#define MARATHON_FIXED_DESCRIPTORS 1\n#define MARATHON_SOFTWARE_CLIP 1\n" +
+             recompiler.out, shader.androidSpirv[2]);
++        compileSpirv("#define MARATHON_FIXED_DESCRIPTORS 1\n#define MARATHON_BUFFER_CONSTANTS 1\n" +
++            recompiler.out, shader.androidSpirv[3], false);
++        compileSpirv("#define MARATHON_FIXED_DESCRIPTORS 1\n#define MARATHON_BUFFER_CONSTANTS 1\n#define MARATHON_SOFTWARE_CLIP 1\n" +
++            recompiler.out, shader.androidSpirv[4], false);
+     }
+ 
+     size_t currentProgress = ++progress;
+@@ -232,19 +237,22 @@ int main(int argc, char** argv)
+             }
+             const size_t spirvOffset = spirv.size();
+             spirv.insert(spirv.end(), shader.spirv.begin(), shader.spirv.end());
+-            size_t variantOffsets[3]{};
+-            for (size_t i = 0; i < 3; ++i)
++            size_t variantOffsets[RecompiledShader::ANDROID_VARIANT_COUNT]{};
++            for (size_t i = 0; i < std::size(shader.androidSpirv); ++i)
+             {
+                 variantOffsets[i] = spirv.size();
+                 const auto& variant = shader.androidSpirv[i];
+                 spirv.insert(spirv.end(), variant.begin(), variant.end());
+             }
+ 
+-            f.println("\t{{ 0x{:X}, {}, {}, {}, {}, {{{}, {}, {}}}, {{{}, {}, {}}}, {}, {}, {}, \"{}\" }},",
+-                hash, dxil.size(), (shader.dxil != nullptr) ? shader.dxil->GetBufferSize() : 0,
+-                spirvOffset, shader.spirv.size(), variantOffsets[0], variantOffsets[1], variantOffsets[2],
+-                shader.androidSpirv[0].size(), shader.androidSpirv[1].size(), shader.androidSpirv[2].size(),
+-                air.size(), shader.air.size(), shader.specConstantsMask, filename);
++            f.print("\t{{ 0x{:X}, {}, {}, {}, {}, {{", hash, dxil.size(),
++                (shader.dxil != nullptr) ? shader.dxil->GetBufferSize() : 0, spirvOffset, shader.spirv.size());
++            for (const auto offset : variantOffsets)
++                f.print("{}, ", offset);
++            f.print("}}, {{");
++            for (const auto& variant : shader.androidSpirv)
++                f.print("{}, ", variant.size());
++            f.println("}}, {}, {}, {}, \"{}\" }},", air.size(), shader.air.size(), shader.specConstantsMask, filename);
+ 
+             if (shader.dxil != nullptr)
+             {
+diff --git a/XenosRecomp/shader_common.h b/XenosRecomp/shader_common.h
+index 37e92a41dc905313699583f0f2b2bd9f0d4b8079..3c9aca0d4bdba281f281ca9c96bf30d6ba651cf3 100644
+--- a/XenosRecomp/shader_common.h
++++ b/XenosRecomp/shader_common.h
+@@ -24,6 +24,21 @@
+ 
+ #ifdef __spirv__
+ 
++#ifdef MARATHON_BUFFER_CONSTANTS
++
++// Binding 2 in the compact sampler set contains all three blocks for the draw.
++[[vk::binding(2, 3)]] ByteAddressBuffer g_ConstantData;
++
++#define LOAD_BUFFER_UINT(BASE, OFFSET)   g_ConstantData.Load((BASE) + uint(OFFSET))
++#define LOAD_BUFFER_FLOAT(BASE, OFFSET)  asfloat(g_ConstantData.Load((BASE) + uint(OFFSET)))
++#define LOAD_BUFFER_INT2(BASE, OFFSET)   asint(g_ConstantData.Load2((BASE) + uint(OFFSET)))
++#define LOAD_BUFFER_FLOAT2(BASE, OFFSET) asfloat(g_ConstantData.Load2((BASE) + uint(OFFSET)))
++#define LOAD_BUFFER_FLOAT4(BASE, OFFSET) asfloat(g_ConstantData.Load4((BASE) + uint(OFFSET)))
++
++#define MARATHON_CONSTANT_ADDRESS uint
++
++#else
++
+ // Physical storage buffer addresses carry two 32-bit words so shaders also work
+ // on Vulkan devices with bufferDeviceAddress but without shaderInt64.
+ template<typename T>
+@@ -79,14 +94,20 @@ uint2 offsetBufferAddress(uint2 address, uint byteOffset)
+ #define LOAD_BUFFER_FLOAT2(BASE, OFFSET) loadPhysicalBuffer(float2BufferPointer(offsetBufferAddress((BASE), uint(OFFSET))), 2, 4)
+ #define LOAD_BUFFER_FLOAT4(BASE, OFFSET) loadPhysicalBuffer(float4BufferPointer(offsetBufferAddress((BASE), uint(OFFSET))), 2, 16)
+ 
+-// Keep offsets 0, 8, and 16 in sync with SetRootDescriptor on the host.
++#define MARATHON_CONSTANT_ADDRESS uint2
++
++#endif
++
++// Byte offsets are 0, 4, 8 for buffer offsets and 0, 8, 16 for physical addresses.
+ struct PushConstants
+ {
+-    uint2 VertexShaderConstants;
+-    uint2 PixelShaderConstants;
+-    uint2 SharedConstants;
++    MARATHON_CONSTANT_ADDRESS VertexShaderConstants;
++    MARATHON_CONSTANT_ADDRESS PixelShaderConstants;
++    MARATHON_CONSTANT_ADDRESS SharedConstants;
+ };
+ 
++#undef MARATHON_CONSTANT_ADDRESS
++
+ [[vk::push_constant]] ConstantBuffer<PushConstants> g_PushConstants;
+ 
+ #define g_Booleans                  LOAD_BUFFER_UINT(g_PushConstants.SharedConstants, 256)

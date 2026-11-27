@@ -38,6 +38,7 @@ struct Video
     static void Resize(uint32_t width, uint32_t height);
     static void StartPipelinePrecompilation();
     static void WaitForGPU();
+    static void FlushPendingUploads();
     static std::pair<uint32_t, uint32_t> GetOutputSize();
     static void ComputeViewportDimensions();
 };
@@ -175,6 +176,7 @@ struct GuestBaseTexture : GuestResource
     RenderFormat format = RenderFormat::UNKNOWN;
     uint32_t descriptorIndex = 0;
     RenderTextureLayout layout = RenderTextureLayout::UNKNOWN;
+    uint64_t pendingCopyBatchId = 0;
 
     GuestBaseTexture(ResourceType type) : GuestResource(type)
     {
@@ -188,14 +190,17 @@ struct GuestTexture : GuestBaseTexture
     uint32_t mipLevels = 1;
     RenderTextureViewDimension viewDimension = RenderTextureViewDimension::UNKNOWN;
     void* mappedMemory = nullptr;
-    ankerl::unordered_dense::map<uint32_t, std::unique_ptr<RenderFramebuffer>> framebuffers;
+    // Destroy framebuffers before the views they reference.
     std::vector<std::unique_ptr<RenderTextureView>> framebufferViews;
+    ankerl::unordered_dense::map<uint32_t, std::unique_ptr<RenderFramebuffer>> framebuffers;
     std::unique_ptr<GuestTexture> patchedTexture;
     struct GuestSurface* sourceSurface = nullptr;
+    ankerl::unordered_dense::set<struct GuestSurface*> sliceSurfaces;
     // Second view of a 2D texture typed as a 2D array, for the Texture2DArray heap (see CreateArrayTextureView).
     std::unique_ptr<RenderTextureView> arrayTextureView;
     uint32_t arrayDescriptorIndex = 0;
     RenderFormat uploadFormat = RenderFormat::UNKNOWN;
+    bool colorRenderTarget = false;
 };
 
 struct GuestLockedRect
@@ -252,6 +257,8 @@ struct GuestSurface : GuestBaseTexture
     RenderSampleCounts sampleCount = RenderSampleCount::COUNT_1;
     ankerl::unordered_dense::map<GuestTexture*, uint32_t> destinationTextures;
     struct SurfaceVariant* variant = nullptr;
+    GuestTexture* sliceTexture = nullptr;
+    uint32_t slice = 0;
 };
 
 enum GuestDeclType

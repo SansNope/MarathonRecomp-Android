@@ -11,12 +11,14 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.text.TextUtils;
@@ -48,11 +50,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /** Lightweight pre-flight screen. It deliberately does not load SDL or Vulkan. */
 public final class MarathonLauncherActivity extends Activity {
@@ -326,9 +331,10 @@ public final class MarathonLauncherActivity extends Activity {
         section.addView(installStatus);
         buttonGrid(section,
             button(R.string.launcher_install_game, view -> chooseInstallSource()),
+            button(R.string.launcher_verify_files, view -> startVerifyGameFiles()),
             button(R.string.launcher_open_files, view -> openFiles("game")),
-            button(R.string.launcher_recheck, view -> refreshStatuses()),
-            button(R.string.launcher_open_saves, view -> openFiles("save")));
+            button(R.string.launcher_open_saves, view -> openFiles("save")),
+            button(R.string.launcher_recheck, view -> refreshStatuses()));
         storageStatus = statusText();
         storageStatus.setPadding(0, dp(16), 0, 0);
         section.addView(storageStatus);
@@ -429,6 +435,7 @@ public final class MarathonLauncherActivity extends Activity {
         section.addView(diagnosticsStatus);
         buttonGrid(section,
             button(R.string.launcher_recommended, view -> applyRecommended()),
+            button(R.string.launcher_share_logs, view -> shareLogs()),
             button(R.string.launcher_open_logs, view -> openFiles("transfer")));
     }
 
@@ -558,13 +565,421 @@ public final class MarathonLauncherActivity extends Activity {
 
         AlertDialog dialog = new AlertDialog.Builder(this)
             .setView(scroll)
+            .setNeutralButton(R.string.launcher_licenses, (unused, which) -> showLicenses())
             .setPositiveButton(android.R.string.ok, null)
             .create();
         dialog.show();
+        styleDialogWindow(dialog);
+    }
+
+    private void styleDialogWindow(AlertDialog dialog) {
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new InsetDrawable(
                 new LauncherStyle.Panel(0xF20B2459, 0xF2040B1F, COLOR_FRAME, dp(16), dp(1), true), dp(16)));
         }
+    }
+
+    private void showLicenses() {
+        LinearLayout content = column();
+        content.setPadding(dp(22), dp(18), dp(22), dp(12));
+
+        TextView title = heading(getString(R.string.launcher_licenses_title), 20);
+        title.setTextColor(COLOR_ACCENT);
+        content.addView(title);
+        View titleLine = new View(this);
+        titleLine.setBackground(LauncherStyle.fadeLine(COLOR_GLOW, true));
+        LinearLayout.LayoutParams titleLineParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
+        titleLineParams.topMargin = dp(2);
+        titleLineParams.bottomMargin = dp(12);
+        content.addView(titleLine, titleLineParams);
+
+        TextView summary = text(formatNoticesOverview(readAssetText("licenses/THIRD_PARTY_NOTICES.md")), 14, false);
+        summary.setLineSpacing(0, 1.15f);
+        summary.setTextColor(COLOR_TEXT_SECONDARY);
+        content.addView(summary, matchWrap());
+
+        try {
+            String[] files = getAssets().list("licenses");
+            if (files != null && files.length > 0) {
+                Arrays.sort(files, String.CASE_INSENSITIVE_ORDER);
+                List<Button> licenseButtons = new ArrayList<>();
+                for (String name : files) {
+                    if ("THIRD_PARTY_NOTICES.md".equals(name)) continue;
+                    String label = name.endsWith(".txt") ? name.substring(0, name.length() - 4) : name;
+                    Button item = new Button(this);
+                    item.setText(label);
+                    item.setAllCaps(false);
+                    item.setTextSize(13);
+                    item.setTextColor(COLOR_TEXT);
+                    item.setStateListAnimator(null);
+                    item.setBackground(pressable(new LauncherStyle.Panel(
+                        COLOR_BUTTON_TOP, COLOR_BUTTON_BOTTOM, COLOR_FRAME, dp(10), dp(1), true)));
+                    item.setMinHeight(dp(40));
+                    item.setMinimumHeight(dp(40));
+                    item.setPadding(dp(10), dp(6), dp(10), dp(6));
+                    item.setOnClickListener(v -> showAssetTextDialog(label, "licenses/" + name));
+                    licenseButtons.add(item);
+                }
+                if (!licenseButtons.isEmpty()) {
+                    TextView filesHeader = heading(getString(R.string.launcher_licenses_files_header), 15);
+                    filesHeader.setTextColor(COLOR_ACCENT);
+                    filesHeader.setPadding(0, dp(16), 0, dp(4));
+                    content.addView(filesHeader, matchWrap());
+                    buttonGrid(content, licenseButtons.toArray(new Button[0]));
+                }
+            }
+        } catch (IOException ignored) {
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setView(scroll)
+            .setPositiveButton(android.R.string.ok, null)
+            .create();
+        dialog.show();
+        styleDialogWindow(dialog);
+    }
+
+    private void showAssetTextDialog(String titleText, String assetPath) {
+        LinearLayout content = column();
+        content.setPadding(dp(22), dp(18), dp(22), dp(10));
+
+        TextView title = heading(titleText, 18);
+        title.setTextColor(COLOR_ACCENT);
+        content.addView(title);
+        View titleLine = new View(this);
+        titleLine.setBackground(LauncherStyle.fadeLine(COLOR_GLOW, true));
+        LinearLayout.LayoutParams titleLineParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
+        titleLineParams.topMargin = dp(2);
+        titleLineParams.bottomMargin = dp(10);
+        content.addView(titleLine, titleLineParams);
+
+        TextView body = text(readAssetText(assetPath), 13, false);
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setTextColor(COLOR_TEXT_SECONDARY);
+        body.setTextIsSelectable(true);
+        content.addView(body, matchWrap());
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setView(scroll)
+            .setPositiveButton(android.R.string.ok, null)
+            .create();
+        dialog.show();
+        styleDialogWindow(dialog);
+    }
+
+    private String readAssetText(String assetPath) {
+        StringBuilder out = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(getAssets().open(assetPath), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (out.length() > 0) out.append('\n');
+                out.append(line);
+            }
+        } catch (IOException exception) {
+            return exception.getMessage() != null ? exception.getMessage() : "";
+        }
+        return out.toString();
+    }
+
+    private static String formatNoticesOverview(String markdown) {
+        StringBuilder out = new StringBuilder();
+        for (String rawLine : markdown.split("\n")) {
+            String trimmed = rawLine.trim();
+            if (trimmed.startsWith("|---") || trimmed.startsWith("| Component |")) continue;
+            if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+                String[] cells = trimmed.substring(1, trimmed.length() - 1).split("\\|");
+                if (cells.length >= 3) {
+                    out.append("• ")
+                       .append(cells[0].trim().replace("**", ""))
+                       .append(" — ")
+                       .append(cells[2].trim().replace("**", "").replace("`", ""))
+                       .append('\n');
+                    continue;
+                }
+            }
+            if (trimmed.startsWith("# ")) continue;
+            if (trimmed.startsWith("## ")) {
+                if (out.length() > 0) out.append('\n');
+                out.append(trimmed.substring(3).toUpperCase(Locale.ROOT)).append('\n');
+                continue;
+            }
+            String clean = trimmed.replace("**", "").replace("`", "").replace("[COPYING](COPYING)", "COPYING");
+            out.append(clean).append('\n');
+        }
+        return out.toString().trim();
+    }
+
+    private void startVerifyGameFiles() {
+        if (fileOperation) {
+            showError(getString(R.string.storage_busy));
+            return;
+        }
+        InstallState current = inspectInstallation();
+        if (!current.ready) {
+            showError(current.message);
+            return;
+        }
+
+        fileOperation = true;
+        final InstallProgress progress = new InstallProgress();
+        progress.label = text(getString(R.string.install_scanning), 15, false);
+        progress.label.setPadding(dp(20), dp(16), dp(20), dp(16));
+        progress.dialog = new AlertDialog.Builder(this)
+            .setTitle(R.string.verify_progress_title)
+            .setView(progress.label)
+            .setCancelable(false)
+            .setNegativeButton(R.string.install_cancel, (dialog, which) -> progress.cancelled = true)
+            .show();
+
+        final File gameRoot = AppStorage.activeGameRoot(this);
+        new Thread(() -> {
+            try {
+                GameVerifier.Result result = GameVerifier.verify(this, gameRoot, new GameVerifier.Progress() {
+                    @Override
+                    public boolean isCancelled() {
+                        return progress.cancelled;
+                    }
+
+                    @Override
+                    public void onProgress(int checkedFiles, int totalFiles, long checkedBytes, long totalBytes) {
+                        final String status = getString(R.string.verify_progress_status,
+                            checkedFiles, totalFiles, formatBytes(checkedBytes), formatBytes(totalBytes));
+                        runOnUiThread(() -> progress.label.setText(status));
+                    }
+                });
+                runOnUiThread(() -> {
+                    fileOperation = false;
+                    progress.dialog.dismiss();
+                    showVerifyResult(result);
+                });
+            } catch (Exception exception) {
+                final String reason = FileErrorMessages.describe(this, exception);
+                runOnUiThread(() -> {
+                    fileOperation = false;
+                    progress.dialog.dismiss();
+                    showError(getString(R.string.error_verify_failed, reason));
+                });
+            }
+        }, "game-verifier").start();
+    }
+
+    private void showVerifyResult(GameVerifier.Result result) {
+        if (result.cancelled) {
+            new AlertDialog.Builder(this)
+                .setTitle(R.string.verify_done_title)
+                .setMessage(getString(R.string.verify_cancelled, result.verifiedFiles, result.totalFiles))
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+            return;
+        }
+
+        if (result.isClean()) {
+            String message = getString(R.string.verify_done_ok,
+                result.verifiedFiles, formatBytes(result.verifiedBytes),
+                result.dlcVerifiedCount, DLC_DIRECTORIES.length);
+            if (result.usedDecryptedExecutable) {
+                message += getString(R.string.verify_done_decrypted_note);
+            }
+            new AlertDialog.Builder(this)
+                .setTitle(R.string.verify_done_title)
+                .setMessage(message)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+            return;
+        }
+
+        StringBuilder details = new StringBuilder();
+        details.append(getString(R.string.verify_issues_summary,
+            result.verifiedFiles, formatBytes(result.verifiedBytes),
+            result.missingCount, result.mismatchCount));
+
+        if (!result.missingPaths.isEmpty()) {
+            details.append("\n\n").append(getString(R.string.verify_missing_header));
+            for (String path : result.missingPaths) {
+                details.append("\n• ").append(path);
+            }
+            int hidden = result.missingCount - result.missingPaths.size();
+            if (hidden > 0) {
+                details.append('\n').append(getString(R.string.verify_more_items, hidden));
+            }
+        }
+
+        if (!result.mismatchPaths.isEmpty()) {
+            details.append("\n\n").append(getString(R.string.verify_mismatch_header));
+            for (String path : result.mismatchPaths) {
+                details.append("\n• ").append(path);
+            }
+            int hidden = result.mismatchCount - result.mismatchPaths.size();
+            if (hidden > 0) {
+                details.append('\n').append(getString(R.string.verify_more_items, hidden));
+            }
+        }
+
+        TextView view = text(details.toString(), 14, false);
+        view.setTextIsSelectable(true);
+        view.setPadding(dp(20), dp(14), dp(20), dp(8));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(view);
+
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.error_title)
+            .setView(scroll)
+            .setPositiveButton(android.R.string.ok, null)
+            .show();
+    }
+
+    private void shareLogs() {
+        if (fileOperation) {
+            showError(getString(R.string.storage_busy));
+            return;
+        }
+        final File transferRoot = AppStorage.transferRoot(this);
+        if (transferRoot == null) {
+            showError(getString(R.string.error_open_files));
+            return;
+        }
+        final File logFile = new File(transferRoot, "log.txt");
+        final File prevLogFile = new File(transferRoot, "log_prev.txt");
+        if (!logFile.isFile() && !prevLogFile.isFile()) {
+            showError(getString(R.string.launcher_log_missing));
+            return;
+        }
+
+        fileOperation = true;
+        final AlertDialog progress = new AlertDialog.Builder(this)
+            .setMessage(R.string.share_logs_preparing)
+            .setCancelable(false)
+            .show();
+
+        final String diagnostics = buildDiagnosticsSummary();
+        final File gameRoot = AppStorage.activeGameRoot(this);
+        final File configFile = AppStorage.configFile(this);
+        final File startupMarker = new File(getFilesDir(), "vulkan_startup_state.txt");
+
+        new Thread(() -> {
+            File bundleFile = new File(transferRoot, "marathon-logs.zip");
+            try {
+                if (!transferRoot.isDirectory() && !transferRoot.mkdirs()) {
+                    throw new LocalizedIOException("error_io_create", transferRoot);
+                }
+                try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(bundleFile))) {
+                    writeZipTextEntry(zip, "diagnostics.txt", diagnostics);
+                    if (logFile.isFile()) {
+                        writeZipFileEntry(zip, "log.txt", logFile, 64L * 1024L * 1024L);
+                    }
+                    if (prevLogFile.isFile()) {
+                        writeZipFileEntry(zip, "log_prev.txt", prevLogFile, 64L * 1024L * 1024L);
+                    }
+                    if (configFile.isFile()) {
+                        writeZipFileEntry(zip, "config.toml", configFile, 512L * 1024L);
+                    }
+                    if (startupMarker.isFile()) {
+                        writeZipFileEntry(zip, "vulkan_startup_state.txt", startupMarker, 16L * 1024L);
+                    }
+                    File markerList = new File(gameRoot, SHADOW_MAP_RESOLUTION);
+                    if (markerList.isFile()) {
+                        writeZipFileEntry(zip, SHADOW_MAP_RESOLUTION, markerList, 4096L);
+                    }
+                }
+                final Uri shareUri = MarathonDocumentsProvider.buildTransferDocumentUri(this, bundleFile);
+                runOnUiThread(() -> {
+                    fileOperation = false;
+                    progress.dismiss();
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType("application/zip");
+                    send.putExtra(Intent.EXTRA_STREAM, shareUri);
+                    send.putExtra(Intent.EXTRA_SUBJECT, "Marathon Recompiled v" + currentVersion() + " logs");
+                    send.setClipData(ClipData.newRawUri("Marathon Recompiled logs", shareUri));
+                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(send, getString(R.string.share_logs_title)));
+                });
+            } catch (Exception exception) {
+                final String reason = FileErrorMessages.describe(this, exception);
+                runOnUiThread(() -> {
+                    fileOperation = false;
+                    progress.dismiss();
+                    showError(getString(R.string.error_share_logs, reason));
+                });
+            }
+        }, "share-logs").start();
+    }
+
+    private String buildDiagnosticsSummary() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("App: Marathon Recompiled (unofficial Android port)\n");
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            sb.append("Version: ").append(info.versionName)
+              .append(" (").append(info.getLongVersionCode()).append(")\n");
+        } catch (Exception ignored) {
+            sb.append("Version: ").append(currentVersion()).append('\n');
+        }
+        sb.append("Android: ").append(Build.VERSION.RELEASE)
+          .append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
+        sb.append("Device: ").append(Build.MANUFACTURER).append(' ')
+          .append(Build.MODEL).append(" (").append(Build.DEVICE).append(")\n");
+        sb.append("Board / Hardware: ").append(Build.BOARD).append(" / ").append(Build.HARDWARE).append('\n');
+        if (Build.VERSION.SDK_INT >= 31) {
+            sb.append("SoC: ").append(Build.SOC_MANUFACTURER).append(' ').append(Build.SOC_MODEL).append('\n');
+        }
+
+        File gameRoot = AppStorage.activeGameRoot(this);
+        sb.append("Game root: ").append(gameRoot)
+          .append(" (free ").append(formatBytes(gameRoot.getUsableSpace())).append(")\n");
+        sb.append("Save root: ").append(AppStorage.saveDir(this)).append('\n');
+        String importedDriver = readFirstLine(new File(getFilesDir(), "turnip/last_imported_driver.txt"));
+        if (!importedDriver.isEmpty()) {
+            sb.append("Imported Turnip driver: ").append(importedDriver).append('\n');
+        }
+
+        File[] rootFiles = gameRoot.listFiles();
+        if (rootFiles != null) {
+            List<String> markers = new ArrayList<>();
+            for (File f : rootFiles) {
+                if (!f.isFile()) continue;
+                String name = f.getName();
+                if (name.endsWith(".enabled") || name.endsWith(".disabled") || SHADOW_MAP_RESOLUTION.equals(name)) {
+                    markers.add(name);
+                }
+            }
+            if (!markers.isEmpty()) {
+                markers.sort(String.CASE_INSENSITIVE_ORDER);
+                sb.append("Active markers: ").append(TextUtils.join(", ", markers)).append('\n');
+            } else {
+                sb.append("Active markers: (none)\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private static void writeZipTextEntry(ZipOutputStream zip, String entryName, String text) throws IOException {
+        ZipEntry entry = new ZipEntry(entryName);
+        zip.putNextEntry(entry);
+        zip.write(text.getBytes(StandardCharsets.UTF_8));
+        zip.closeEntry();
+    }
+
+    private static void writeZipFileEntry(ZipOutputStream zip, String entryName, File source, long maxBytes)
+            throws IOException {
+        if (!source.isFile() || source.length() > maxBytes) return;
+        ZipEntry entry = new ZipEntry(entryName);
+        entry.setTime(source.lastModified());
+        zip.putNextEntry(entry);
+        byte[] buffer = new byte[64 * 1024];
+        try (FileInputStream in = new FileInputStream(source)) {
+            int count;
+            while ((count = in.read(buffer)) > 0) {
+                zip.write(buffer, 0, count);
+            }
+        }
+        zip.closeEntry();
     }
 
     private void exitApp() {

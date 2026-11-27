@@ -398,6 +398,16 @@ CONFIG_DEFINE_LOCALE(DisableKingdomValleyMist)
     { ELanguage::Italian,  { "Disattiva la nebbia di Kingdom Valley", "Rimuove la nebbia nella sezione ad alta velocità di Kingdom Valley." } }
 };
 
+CONFIG_DEFINE_LOCALE(DisablePedestrianAnimationLOD)
+{
+    { ELanguage::English,  { "Disable Pedestrian Animation LOD", "Disables town NPCs animating at a lower frame rate from afar. This may heavily impact performance." } },
+    { ELanguage::Japanese, { "通行人アニメーションLODを無効化", "遠くの街のNPCのアニメーションフレームレート低下を無効にします。パフォーマンスに大きく影響する場合があります" } },
+    { ELanguage::German,   { "Passanten-Animations-LOD deaktivieren", "Deaktiviert die reduzierte Animationsbildrate entfernter Stadtbewohner. Kann die Leistung stark beeinträchtigen." } },
+    { ELanguage::French,   { "Désactiver le LOD d'animation des passants", "Empêche les PNJ éloignés de s'animer à fréquence réduite. Peut fortement impacter les performances." } },
+    { ELanguage::Spanish,  { "Desactivar LOD de animación de peatones", "Evita que los PNJ lejanos de la ciudad se animen a menor tasa de fotogramas. Puede afectar mucho al rendimiento." } },
+    { ELanguage::Italian,  { "Disattiva LOD animazione passanti", "Impedisce ai PNG lontani in città di animarsi a frequenza ridotta. Può influire pesantemente sulle prestazioni." } }
+};
+
 CONFIG_DEFINE_LOCALE(ControllableHomingRecovery)
 {
     { ELanguage::English,  { "Steer After Homing Attack", "Lets Sonic steer during recovery after a Homing Attack." } },

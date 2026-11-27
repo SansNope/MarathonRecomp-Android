@@ -42,10 +42,16 @@ file(RELATIVE_PATH XENON_RECOMP_IN_SWITCH_TABLE_REL "${XENON_RECOMP_OUT_CONFIG_D
 file(RELATIVE_PATH XENON_RECOMP_IN_XEX_REL "${XENON_RECOMP_OUT_CONFIG_DIR}" "${XENON_RECOMP_IN_XEX}")
 file(RELATIVE_PATH XENON_RECOMP_OUT_DIR_REL "${XENON_RECOMP_OUT_CONFIG_DIR}" "${XENON_RECOMP_OUT_DIR}")
 
-# XenonRecomp optimizations, all off by default. Enabling any of them changes the PPCContext
-# layout and regenerates every recompiled source, so use a separate build directory per set.
+# XenonRecomp optimizations. On Android, Group 1 (CTR/XER/RESERVED/CR as locals + MERGE_ROUNDING)
+# is enabled by default so canonical Android builds match release APKs without manual -D flags.
+# Changing any option alters PPCContext layout and regenerates PPC sources, so keep distinct build dirs per set.
+set(MARATHON_RECOMP_PPC_GROUP1_OPTIONS CTR_AS_LOCAL XER_AS_LOCAL RESERVED_AS_LOCAL CR_AS_LOCAL MERGE_ROUNDING)
 foreach (XENON_RECOMP_OPTION SKIP_LR SKIP_MSR CTR_AS_LOCAL XER_AS_LOCAL RESERVED_AS_LOCAL CR_AS_LOCAL NON_ARGUMENT_AS_LOCAL NON_VOLATILE_AS_LOCAL MERGE_ROUNDING)
-    option(MARATHON_RECOMP_PPC_${XENON_RECOMP_OPTION} "Enable the XenonRecomp ${XENON_RECOMP_OPTION} optimization" OFF)
+    set(XENON_RECOMP_DEFAULT OFF)
+    if (ANDROID AND XENON_RECOMP_OPTION IN_LIST MARATHON_RECOMP_PPC_GROUP1_OPTIONS)
+        set(XENON_RECOMP_DEFAULT ON)
+    endif()
+    option(MARATHON_RECOMP_PPC_${XENON_RECOMP_OPTION} "Enable the XenonRecomp ${XENON_RECOMP_OPTION} optimization" ${XENON_RECOMP_DEFAULT})
     if (MARATHON_RECOMP_PPC_${XENON_RECOMP_OPTION})
         set(XENON_RECOMP_${XENON_RECOMP_OPTION} true)
     else()

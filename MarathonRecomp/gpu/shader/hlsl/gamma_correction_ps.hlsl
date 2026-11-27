@@ -1,3 +1,29 @@
+#ifdef MARATHON_ANDROID_GAMMA
+
+struct GammaPassConstants
+{
+    float gamma;
+    uint transpose;
+    int2 sourceOffset;
+    int2 sourceStep;
+};
+
+[[vk::push_constant]] ConstantBuffer<GammaPassConstants> g_GammaPass;
+Texture2D<float4> g_GammaSource : register(t0, space0);
+
+float4 shaderMain(in float4 position : SV_Position) : SV_Target
+{
+    int2 pixel = int2(position.xy);
+    pixel = g_GammaPass.transpose != 0 ? pixel.yx : pixel;
+    const int2 source = pixel * g_GammaPass.sourceStep + g_GammaPass.sourceOffset;
+
+    float4 color = g_GammaSource.Load(int3(source, 0));
+    color.rgb = pow(color.rgb, g_GammaPass.gamma);
+    return color;
+}
+
+#else
+
 #include "../../../../tools/XenosRecomp/XenosRecomp/shader_common.h"
 
 #ifdef __spirv__
@@ -47,3 +73,5 @@ float4 shaderMain(in float4 position : SV_Position) : SV_Target
     color.rgb = pow(color.rgb, g_Gamma);
     return color;
 }
+
+#endif

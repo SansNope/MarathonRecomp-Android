@@ -519,7 +519,7 @@ PPC_FUNC(sub_8220D2C0)
 
         if (firstAirStep)
         {
-            LOGF("[spindash] Air step (state={}, entry={:.0f}, stock={:.0f}, retained={:.0f})",
+            LOGF_UTILITY("[spindash] Air step (state={}, entry={:.0f}, stock={:.0f}, retained={:.0f})",
                 vftable == kSonicJumpVftable ? "jump" : "fall", before, stockSpeed, retainedSpeed);
         }
     }
@@ -697,7 +697,7 @@ PPC_FUNC(sub_82217AF0)
                     std::lock_guard lock(g_spindashMutex);
                     g_uncurlContexts.try_emplace(sonicCtxAddr);
                 }
-                LOGF("[spindash] Jump from charge (speed={:.0f})", finalSpeed);
+                LOGF_UTILITY("[spindash] Jump from charge (speed={:.0f})", finalSpeed);
                 ctx.r3.u64 = 1u;
                 return;
             }
@@ -727,7 +727,7 @@ PPC_FUNC(sub_82217AF0)
             WriteGuestU32(base, stateAddr + 16u, 1u);
             GuestToHostFunction<void>(sub_82208F48, pSonicCtx, kAnimSpindashRoll);
 
-            LOGF("[spindash] Launch (charge={:.2f}s, entry={:.0f}, launch={:.0f})",
+            LOGF_UTILITY("[spindash] Launch (charge={:.2f}s, entry={:.0f}, launch={:.0f})",
                 rt.chargeTime, rt.entrySpeed, launchSpeed);
         }
 
@@ -756,7 +756,7 @@ PPC_FUNC(sub_82217AF0)
                 std::lock_guard lock(g_spindashMutex);
                 g_uncurlContexts.try_emplace(sonicCtxAddr);
             }
-            LOGF("[spindash] Jump from roll (speed={:.0f})", finalSpeed);
+            LOGF_UTILITY("[spindash] Jump from roll (speed={:.0f})", finalSpeed);
             ctx.r3.u64 = 1u;
             return;
         }
@@ -789,7 +789,7 @@ PPC_FUNC(sub_82217AF0)
         {
             const float exitSpeed = std::max(pSonicCtx->m_BaseSpeedForward.get(), carrySpeed);
             pSonicCtx->m_BaseSpeedForward = exitSpeed;
-            LOGF("[spindash] Exit on X (roll={:.0f}, exit={:.0f})", carrySpeed, exitSpeed);
+            LOGF_UTILITY("[spindash] Exit on X (roll={:.0f}, exit={:.0f})", carrySpeed, exitSpeed);
             ctx.r3.u64 = 1u;
             return;
         }
